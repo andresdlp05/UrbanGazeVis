@@ -29,7 +29,7 @@ Sistema de visualización interactiva de datos de eye tracking con análisis de 
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/andresdlp05/trackvis.git
+git clone https://github.com/FGV-VIS-2025/UrbanGazeVis.git
 
 # 2. Navegar al directorio del proyecto
 cd trackvis
@@ -45,7 +45,7 @@ docker-compose logs -f
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/andresdlp05/trackvis.git
+git clone https://github.com/FGV-VIS-2025/UrbanGazeVis.git
 
 # 2. Navegar al directorio del proyecto
 cd trackvis
@@ -61,7 +61,7 @@ docker-compose logs -f
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/andresdlp05/trackvis.git
+git clone https://github.com/FGV-VIS-2025/UrbanGazeVis.git
 
 # 2. Navegar al directorio del proyecto
 cd trackvis
