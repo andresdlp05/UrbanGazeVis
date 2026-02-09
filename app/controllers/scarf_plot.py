@@ -1,6 +1,6 @@
 """
 Controller para Scarf Plot Visualization
-Maneja la visualización de la distribución temporal de gaze por elementos visuales
+Maneja la visualización de la distribución temporal de gaze y fixations
 """
 
 import pandas as pd
@@ -25,171 +25,117 @@ class ScarfPlotController:
         self.csv_path = csv_path
         self.data = None
         self.color_mapping = {}
-        self.grupo_color_mapping = {}
+        # Mapeo fijo para grupos para consistencia visual
+        self.grupo_color_mapping = {
+            'Building': '#8B7355',      # Marrón
+            'Vegetation': '#228B22',    # Verde
+            'Car': '#DC143C',           # Rojo
+            'Sidewalk': '#D3D3D3',      # Gris claro
+            'Person': '#FF8C00',        # Naranja
+            'Sky': '#87CEEB',           # Azul Cielo
+            'Trash': '#2F4F4F',         # Gris oscuro
+            'Road': '#808080',          # Gris medio
+            'Obstacle': '#000000'
+        }
         self.scores_data = None
         self.load_data()
 
     def load_data(self):
-        """Carga datos de gaze tracking y scores"""
+        """Carga datos de gaze tracking y scores SIN MODIFICAR EL GLOBAL"""
         try:
-            # Usar servicio singleton en lugar de cargar CSV localmente
             if get_data_service:
                 self.data_service = get_data_service()
+                # Obtenemos la REFERENCIA al dataframe global
                 self.data = self.data_service.get_main_data()
                 self.scores_data = self.data_service.get_scores_data()
-                if self.data is not None:
-                    print(f"OK: ScarfPlotController: Datos cargados desde DataService ({len(self.data)} puntos de gaze)")
             else:
-                # Fallback: cargar manualmente
                 full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
-                self.data = pd.read_csv(full_path)
-                print(f"ADVERTENCIA: ScarfPlotController: Datos cargados localmente ({len(self.data)} puntos de gaze)")
+                if os.path.exists(full_path):
+                    self.data = pd.read_csv(full_path)
+                else:
+                    return
 
-            if self.data is None:
-                return
+            if self.data is None: return
 
-            # Crear mapeo de colores para main_class (si existe hex_color en CSV)
+            # --- CORRECCIÓN IMPORTANTE ---
+            # NO modificamos self.data['ImageName'] aquí porque rompería el Heatmap.
+            # NO agregamos self.data['group'] aquí por la misma razón.
+            # Haremos todo eso sobre una COPIA filtrada en get_scarf_plot_data.
+
+            # Cargar mapeo de colores base (solo lectura)
             if 'hex_color' in self.data.columns and 'main_class' in self.data.columns:
-                color_df = self.data[['main_class', 'hex_color']].drop_duplicates()
-                for idx, row in color_df.iterrows():
-                    if pd.notna(row['main_class']) and pd.notna(row['hex_color']):
-                        self.color_mapping[str(row['main_class'])] = str(row['hex_color'])
-
-            print(f"Mapeo de colores (main_class): {len(self.color_mapping)} clases")
-
-            # Crear mapeo de colores para grupo (generar automáticamente)
-            if 'grupo' in self.data.columns:
-                unique_grupos = self.data['grupo'].dropna().unique()
-                # Paleta de colores predefinida para grupo
-                grupo_colors = {
-                    'Building': '#8B7355',      # Marrón
-                    'Vegetacion': '#228B22',   # Verde forestale
-                    'Car': '#DC143C',          # Rojo
-                    'Sidewalk': '#D3D3D3',     # Gris claro
-                    'Person': '#FF8C00',       # Naranja oscuro
-                    'Trash': '#2F4F4F'         # Gris oscuro
-                }
-                for grupo in unique_grupos:
-                    grupo_str = str(grupo).strip()
-                    if grupo_str:
-                        self.grupo_color_mapping[grupo_str] = grupo_colors.get(grupo_str, '#999999')
-
-            print(f"Mapeo de colores (grupo): {len(self.grupo_color_mapping)} grupos")
-
-            # Cargar datos de scores (para obtener los 10 participantes oficiales por imagen)
-            scores_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'data_hololens.json')
-            if os.path.exists(scores_path):
-                with open(scores_path, 'r') as f:
-                    self.scores_data = json.load(f)
-                print(f"Datos de scores cargados: {len(self.scores_data)} imagenes")
-            else:
-                print(f"Scores file not found at: {scores_path}")
+                color_df = self.data[['main_class', 'hex_color']].dropna().drop_duplicates()
+                self.color_mapping = dict(zip(color_df['main_class'], color_df['hex_color']))
 
         except Exception as e:
             print(f"Error cargando datos scarf: {e}")
 
     def get_valid_participants_for_image(self, image_id):
-        """Obtiene los 10 participantes oficiales para una imagen"""
-        if self.scores_data is None:
-            return []
-
+        if self.scores_data is None: return []
         image_key = str(image_id)
         if image_key in self.scores_data:
             score_entries = self.scores_data[image_key].get('score_participant', [])
-            participants = [entry['participant'] for entry in score_entries]
-            return sorted(set(participants))
+            return sorted(list(set(entry['participant'] for entry in score_entries)))
         return []
 
     def get_scarf_plot_data(self, image_id, participant_id=None, data_type='gaze', dataset_select='main_class', image_name=None):
-        """
-        Retorna datos procesados para el scarf plot
+        # image_id viene como int desde la URL
+        
+        if self.data is None: return {'error': 'No data available'}
 
-        Args:
-            image_id: ImageName de la imagen (usado para filtrar datos del CSV)
-            participant_id: ID del participante (opcional, si None trae todos)
-            data_type: Tipo de datos a usar ('gaze' o 'fixations')
-            dataset_select: Columna a usar para clasificación ('main_class' o 'grupo')
-            image_name: DEPRECATED, use image_id which is now ImageName
-
-        Returns:
-            Dict con datos listos para visualizar
-        """
-        # image_id ahora es ImageName directamente (0-149)
-        print(f"ScarfPlotController.get_scarf_plot_data(image_id={image_id}, participant_id={participant_id}, data_type={data_type}, dataset_select={dataset_select})")
-
-        # Obtener el DataFrame correcto según dataset_select
-        if hasattr(self, 'data_service') and self.data_service:
-            current_data = self.data_service.get_data_by_dataset(dataset_select)
-        else:
-            current_data = self.data  # Fallback a datos por defecto
-
-        if current_data is None:
-            return {'error': 'No data available'}
-
-        # Mapear dataset_select a las columnas correctas del CSV
+        # Configurar columnas según la selección
         if dataset_select == 'disorder':
             class_column = 'main_class'
-            class_id_column = 'class_id'
             color_column = 'hex_color'
-        elif dataset_select in ['grouped', 'grouped_disorder']:
-            # Verificar qué columna existe en el DataFrame
-            if 'group' in current_data.columns:
-                class_column = 'group'
-            elif 'group_name' in current_data.columns:
-                class_column = 'group_name'
-            elif 'grupo' in current_data.columns:
-                class_column = 'grupo'
-            else:
-                return {'error': 'No group column found in dataset'}
-            class_id_column = 'group_class_id'
+        elif dataset_select == 'grouped':
+            class_column = 'group'
             color_column = 'hex_color'
-        else:  # main_class
+        elif dataset_select == 'grouped_disorder':
+            class_column = 'group_name'
+            color_column = 'hex_color'
+        else:
             class_column = 'main_class'
-            class_id_column = 'class_id'
             color_column = 'hex_color'
-
-        print(f"  Using columns: class={class_column}, id={class_id_column}, color={color_column}")
 
         try:
-            # Filtrar por ImageName
-            filtered = current_data[current_data['ImageName'] == image_id].copy()
+            # --- FILTRADO SEGURO (Sin tocar el global) ---
+            # Usamos .astype(str) en la comparación, no en la asignación
+            # Esto crea una máscara booleana temporal sin cambiar los datos originales
+            mask = self.data['ImageName'].astype(str) == str(image_id)
+            filtered = self.data[mask].copy() # .copy() crea un nuevo DF independiente
 
-            if len(filtered) == 0:
-                return {'error': f'No data for image {image_id}'}
+            if len(filtered) == 0: return {'error': f'No data for image {image_id}'}
 
-            # Obtener los 10 participantes oficiales para esta imagen
+            # --- AHORA SI PODEMOS MODIFICAR 'filtered' ---
+            
+            # 1. Generar columna 'group' SOLO en este subconjunto si se necesita
+            if dataset_select == 'grouped' and 'group' not in filtered.columns:
+                def map_group(cls):
+                    c = str(cls).lower()
+                    if 'build' in c or 'house' in c: return 'Building'
+                    if 'tree' in c or 'veg' in c: return 'Vegetation'
+                    if 'car' in c or 'bus' in c: return 'Car'
+                    if 'road' in c: return 'Road'
+                    if 'walk' in c: return 'Sidewalk'
+                    if 'sky' in c: return 'Sky'
+                    if 'person' in c: return 'Person'
+                    return 'Other'
+                filtered['group'] = filtered['main_class'].apply(map_group)
+
+            # 2. Filtrar participantes
             valid_participants = self.get_valid_participants_for_image(image_id)
+            if not valid_participants: return {'error': f'No valid participants found'}
+            
+            filtered = filtered[filtered['participante'].isin(valid_participants)]
 
-            if not valid_participants:
-                return {'error': f'No valid participants found for image {image_id}'}
-
-            # Filtrar solo para participantes válidos
-            filtered = filtered[filtered['participante'].isin(valid_participants)].copy()
-
-            # Filtrar por participante específico si se especifica
             if participant_id is not None:
-                if participant_id not in valid_participants:
-                    return {'error': f'Participant {participant_id} not valid for image {image_id}'}
                 filtered = filtered[filtered['participante'] == participant_id]
 
-            if len(filtered) == 0:
-                return {'error': f'No data for image {image_id} and participants {valid_participants}'}
+            if len(filtered) == 0: return {'error': 'No data after filtering'}
 
-            # Eliminar puntos sin clasificación
-            before = len(filtered)
-            filtered = filtered[
-                (filtered[class_column].notna()) &
-                (filtered[class_column].astype(str).str.strip() != '')
-            ]
-            after = len(filtered)
-
-            if after > 0:
-                print(f"Filtered: {before} -> {after} points (removed {before-after} unclassified)")
-
-            # Si se solicita procesar fixations, detectarlas primero
+            # --- LÓGICA DE FIXATIONS / GAZE ---
             if data_type == 'fixations':
-                print(f"Processing scarf plot data as FIXATIONS")
-                # Detectar fixations usando I-VT
+                # Detectar fixations
                 fixations_result = get_fixations_ivt(
                     data=filtered,
                     participant_id=None,
@@ -199,163 +145,115 @@ class ScarfPlotController:
                     image_width=800,
                     image_height=600
                 )
-
                 fixations_list = fixations_result.get('fixations', [])
-                print(f"Detected {len(fixations_list)} fixations for scarf plot")
+                if not fixations_list: return {'error': 'No fixations detected'}
 
-                if not fixations_list:
-                    return {'error': f'No fixations detected for image {image_id}'}
-
-                # Convertir fixations a formato para scarf plot
-                # Agrupar por participante
+                # Agrupar fixations
                 fixations_by_participant = {}
                 for fix in fixations_list:
                     p_id = fix.get('participante')
                     if p_id not in fixations_by_participant:
                         fixations_by_participant[p_id] = []
                     fixations_by_participant[p_id].append(fix)
-
-                participants = sorted([p for p in fixations_by_participant.keys() if p in valid_participants])
+                participants = sorted(fixations_by_participant.keys())
             else:
-                # Procesar como gaze points (código original)
-                # Obtener participantes únicos (solo los válidos)
-                participants = sorted([p for p in filtered['participante'].unique() if p in valid_participants])
+                participants = sorted(filtered['participante'].unique())
                 fixations_by_participant = None
 
-            # Procesar datos por participante
+            # --- CONSTRUCCIÓN DEL JSON DE RESPUESTA ---
             scarf_data = []
+            
             for p_id in participants:
+                # RAMA FIXATIONS
                 if data_type == 'fixations':
-                    # Usar fixations para este participante
                     p_fixations = fixations_by_participant.get(p_id, [])
-                    if not p_fixations:
-                        continue
+                    if not p_fixations: continue
 
-                    # Obtener tiempo min/max de las fixations
                     times = [f.get('start', 0) for f in p_fixations]
-                    min_time = min(times) if times else 0
-                    max_time = max(times) if times else 1
-
-                    # Agrupar fixations por clase
-                    # Asignar clase basándome en los puntos gaze cercanos espacialmente
+                    min_time, max_time = (min(times), max(times)) if times else (0, 1)
+                    
                     segments = []
-                    fixation_radius = 50  # radio en pixels para buscar puntos cercanos
+                    fixation_radius = 50 
 
-                    for fix_idx, fix in enumerate(sorted(p_fixations, key=lambda f: f.get('start', 0))):
-                        # Obtener clase más común en esta región espacial
-                        x_centroid = fix.get('x_centroid', 0)
-                        y_centroid = fix.get('y_centroid', 0)
-
-                        # Buscar puntos cercanos del participante
+                    for fix in sorted(p_fixations, key=lambda f: f.get('start', 0)):
+                        # Lógica espacial para determinar clase
+                        x, y = fix.get('x_centroid', 0), fix.get('y_centroid', 0)
                         p_gaze = filtered[filtered['participante'] == p_id]
+                        
+                        class_value = 'unknown'
                         if len(p_gaze) > 0:
-                            # Calcular distancia a cada punto
-                            distances = np.sqrt(
-                                (p_gaze['pixelX'] - x_centroid)**2 +
-                                (p_gaze['pixelY'] - y_centroid)**2
-                            )
+                            dists = np.sqrt((p_gaze['pixelX'] - x)**2 + (p_gaze['pixelY'] - y)**2)
+                            nearby = p_gaze[dists <= fixation_radius]
+                            
+                            if len(nearby) > 0:
+                                modes = nearby[class_column].mode()
+                                if not modes.empty: class_value = modes[0]
+                            elif not dists.empty:
+                                class_value = p_gaze.loc[dists.idxmin(), class_column]
 
-                            # Filtrar puntos dentro del radio de fijación
-                            nearby_mask = distances <= fixation_radius
-                            nearby_points = p_gaze[nearby_mask]
-
-                            if len(nearby_points) > 0:
-                                # Usar la clase más común de los puntos cercanos
-                                class_value = nearby_points[class_column].mode()
-                                class_value = class_value[0] if len(class_value) > 0 else 'unknown'
-                            else:
-                                # Si no hay puntos cercanos, usar el punto más cercano
-                                closest_idx = distances.idxmin()
-                                class_value = p_gaze.loc[closest_idx, class_column]
+                        # Color
+                        if dataset_select == 'grouped':
+                            color = self.grupo_color_mapping.get(str(class_value), '#999999')
                         else:
-                            class_value = 'unknown'
+                            color = self.color_mapping.get(str(class_value), '#999999')
 
-                        # Obtener color para esta clase
-                        color_rows = filtered[filtered[class_column] == class_value][color_column].dropna()
-                        class_color = color_rows.iloc[0] if len(color_rows) > 0 else '#999999'
-
-                        # Normalizar tiempo a 0-15000ms
-                        time_range = max_time - min_time if max_time > min_time else 1
-                        start_norm = ((fix.get('start', 0) - min_time) / time_range) * 15000
-                        end_norm = start_norm + (fix.get('duration', 0) * 1000)  # duration en segundos
-
-                        # Clamp times to ensure they don't exceed 15000ms
-                        start_norm = min(max(start_norm, 0.0), 15000.0)
-                        end_norm = min(max(end_norm, 0.0), 15000.0)
+                        # Tiempos
+                        tr = max(max_time - min_time, 1)
+                        s_norm = ((fix.get('start', 0) - min_time) / tr) * 15000
+                        e_norm = s_norm + (fix.get('duration', 0) * 1000)
 
                         segments.append({
                             'class': str(class_value),
-                            'start_time': float(start_norm),
-                            'end_time': float(end_norm),
+                            'start_time': float(np.clip(s_norm, 0, 15000)),
+                            'end_time': float(np.clip(e_norm, 0, 15000)),
                             'points': fix.get('pointCount', 1),
-                            'color': class_color
+                            'color': color
                         })
-
-                    # Calcular tiempo total de este participante (para mantener consistencia)
-                    total_points = sum([s['points'] for s in segments])
 
                     scarf_data.append({
                         'participant': int(p_id),
                         'segments': segments,
-                        'total_points': total_points,
+                        'total_points': sum(s['points'] for s in segments),
                         'time_range_ms': float(max_time - min_time)
                     })
+
+                # RAMA GAZE
                 else:
-                    # Procesar como gaze points (código original)
-                    p_data = filtered[filtered['participante'] == p_id].copy()
-                    p_data = p_data.sort_values('Time')
+                    p_data = filtered[filtered['participante'] == p_id].sort_values('Time')
+                    if len(p_data) == 0: continue
 
-                    if len(p_data) == 0:
-                        continue
+                    min_time, max_time = p_data['Time'].min(), p_data['Time'].max()
+                    tr = max(max_time - min_time, 1)
 
-                    # Normalizar tiempo a rango 0-15000 (15 segundos)
-                    min_time = p_data['Time'].min()
-                    max_time = p_data['Time'].max()
-                    time_range = max_time - min_time if max_time > min_time else 1
-
-                    # Crear segmentos (agrupar puntos consecutivos de misma clase)
                     segments = []
-                    current_segment = None
+                    curr = None
 
-                    # Crear mapeo de colores desde los datos filtrados
-                    color_map = {}
-                    for class_val in p_data[class_column].dropna().unique():
-                        color_rows = p_data[p_data[class_column] == class_val][color_column].dropna()
-                        if len(color_rows) > 0:
-                            color_map[str(class_val).strip()] = color_rows.iloc[0]
+                    for _, row in p_data.iterrows():
+                        norm_time = ((row['Time'] - min_time) / tr) * 15000
+                        cls = str(row[class_column]).strip() if pd.notna(row[class_column]) else "unknown"
 
-                    for idx, row in p_data.iterrows():
-                        normalized_time = ((row['Time'] - min_time) / time_range) * 15000
-                        class_name = str(row[class_column]).strip()
-
-                        if current_segment is None or current_segment['class'] != class_name:
-                            # Guardar segmento anterior
-                            if current_segment:
-                                segments.append(current_segment)
-                            # Iniciar nuevo segmento
-                            current_segment = {
-                                'class': class_name,
-                                'start_time': float(normalized_time),
-                                'end_time': float(normalized_time),
-                                'points': 1,
-                                'color': color_map.get(class_name, '#999999')
-                            }
+                        # Color
+                        if dataset_select == 'grouped':
+                            color = self.grupo_color_mapping.get(cls, '#999999')
                         else:
-                            # Extender segmento actual
-                            current_segment['end_time'] = float(normalized_time)
-                            current_segment['points'] += 1
+                            # Intentamos sacar el color del row, si no del mapa
+                            color = row.get(color_column, self.color_mapping.get(cls, '#999999'))
+                            if pd.isna(color): color = '#999999'
 
-                    # Guardar último segmento
-                    if current_segment:
-                        # Clamp end_time to not exceed 15000ms
-                        current_segment['end_time'] = min(current_segment['end_time'], 15000.0)
-                        segments.append(current_segment)
+                        if curr is None or curr['class'] != cls:
+                            if curr: segments.append(curr)
+                            curr = {'class': cls, 'start_time': float(norm_time), 'end_time': float(norm_time), 'points': 1, 'color': color}
+                        else:
+                            curr['end_time'] = float(norm_time)
+                            curr['points'] += 1
+
+                    if curr: segments.append(curr)
 
                     scarf_data.append({
                         'participant': int(p_id),
                         'segments': segments,
                         'total_points': len(p_data),
-                        'time_range_ms': float(time_range)
+                        'time_range_ms': float(tr)
                     })
 
             return {
@@ -363,7 +261,7 @@ class ScarfPlotController:
                 'participant_id': participant_id,
                 'total_participants': len(participants),
                 'scarf_data': scarf_data,
-                'color_mapping': self.color_mapping,
+                'color_mapping': self.grupo_color_mapping if dataset_select == 'grouped' else self.color_mapping,
                 'status': 'success'
             }
 
@@ -372,20 +270,16 @@ class ScarfPlotController:
             traceback.print_exc()
             return {'error': f'Error processing scarf data: {str(e)}'}
 
-# Instancia global
+# Instancia y endpoints
 scarf_controller = ScarfPlotController()
 
-# Endpoints
 @scarf_bp.route('/api/scarf-plot/<int:image_id>', methods=['GET'])
 def get_scarf_plot(image_id):
-    """Obtiene datos del scarf plot para una imagen"""
     participant_id = request.args.get('participant_id', type=int)
     data_type = request.args.get('data_type', 'gaze').lower()
     dataset_select = request.args.get('dataset_select', 'main_class').lower()
-    data = scarf_controller.get_scarf_plot_data(image_id, participant_id, data_type, dataset_select)
-    return jsonify(data)
+    return jsonify(scarf_controller.get_scarf_plot_data(image_id, participant_id, data_type, dataset_select))
 
 @scarf_bp.route('/api/scarf-plot-colors', methods=['GET'])
 def get_color_mapping():
-    """Obtiene mapeo de colores"""
     return jsonify(scarf_controller.color_mapping)

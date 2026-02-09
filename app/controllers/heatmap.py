@@ -102,27 +102,28 @@ class HeatmapController:
         if current_data is None:
             return {'error': 'No data available'}
 
-        # Mapear dataset_select a las columnas correctas del CSV
+        # Mapear dataset_select a las columnas correctas del CSV # REVISAR
         if dataset_select == 'disorder':
             class_column = 'main_class'
             class_id_column = 'class_id' # Asumiendo que 'class_id' es el ID para main_class
             color_column = 'hex_color'
-        elif dataset_select in ['grouped', 'grouped_disorder']:
-            # Verificar qué columna existe en el DataFrame
-            if 'group' in current_data.columns:
-                class_column = 'group'
-            elif 'group_name' in current_data.columns:
-                class_column = 'group_name'
-            elif 'grupo' in current_data.columns:
-                class_column = 'grupo'
-            else:
-                return {'error': 'No group column found in dataset'}
-            class_id_column = 'group_class_id' # Asumiendo que 'group_class_id' es el ID para grupos
+ 
+        elif dataset_select == 'grouped':
+            class_column = 'group'
+            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
             color_column = 'hex_color'
-        else:  # main_class
+
+        elif dataset_select == 'grouped_disorder':
+            class_column = 'group_name'
+            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
+            color_column = 'hex_color'
+
+        else:
             class_column = 'main_class'
-            class_id_column = 'class_id'
+            #class_id_column = 'group_class_id' # Asumiendo que 'group_class_id' es el ID para grupos
+            class_id_column = 'class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             color_column = 'hex_color'
+
 
         print(f"  Using columns: class={class_column}, id={class_id_column}, color={color_column}")
 
@@ -177,11 +178,11 @@ class HeatmapController:
                                 fixations_list = precomputed_fixations.to_dict('records')
                                 use_precomputed = True
                     except Exception as e:
-                        print(f"⚠ Error usando fixations pre-calculadas: {e}")
+                        print(f" Error usando fixations pre-calculadas: {e}")
 
                 # FALLBACK: Si no hay pre-calculadas, usar I-VT en tiempo real
                 if not use_precomputed:
-                    print(f"⚠ Calculando fijaciones en TIEMPO REAL con I-VT")
+                    print(f" Calculando fijaciones en TIEMPO REAL con I-VT")
                     fixations_result = get_fixations_ivt(
                         data=df_filtered,
                         participant_id=None,

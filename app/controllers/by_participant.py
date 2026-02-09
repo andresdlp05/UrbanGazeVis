@@ -278,7 +278,7 @@ class ByParticipantController:
             print(f"Error calculating heatmap for participant {participant_id}: {e}")
             return {'error': str(e)}
 
-    def generate_heatmap(self, fixations, img_width=800, img_height=600, sigma=30):
+    def generate_heatmap(self, fixations, img_width=800, img_height=600, sigma=24):
         """
         Genera un mapa de densidad continuo usando suavizado Gaussiano.
 
@@ -286,7 +286,7 @@ class ByParticipantController:
             fixations: lista de tuplas (x, y) con coordenadas de puntos de gaze
             img_width: ancho de la imagen (píxeles)
             img_height: alto de la imagen (píxeles)
-            sigma: desviación estándar del kernel Gaussiano (≈1° visual = ~30 píxeles a 800x600)
+            sigma: desviación estándar del kernel Gaussiano (≈1° visual = ~24 píxeles a 800x600)
 
         Returns:
             heatmap normalizado entre 0 y 1

@@ -10,7 +10,7 @@ from skimage.filters import threshold_otsu
 import json
 from pathlib import Path
 
-def generate_heatmap(fixations, img_width=800, img_height=600, sigma=30):
+def generate_heatmap(fixations, img_width=800, img_height=600, sigma=24):
     """
     Genera un heatmap continuo a partir de puntos de fijación con suavizado Gaussiano.
     """
@@ -131,7 +131,7 @@ def main():
         fixations = list(zip(image_data['pixelX'].values, image_data['pixelY'].values))
 
         # Generar heatmap
-        heatmap = generate_heatmap(fixations, img_width=800, img_height=600, sigma=30)
+        heatmap = generate_heatmap(fixations, img_width=800, img_height=600, sigma=24)
 
         # Calcular métricas
         saliency_coverage, _ = calculate_saliency_coverage(heatmap)

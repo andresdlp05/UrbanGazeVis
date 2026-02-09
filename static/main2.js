@@ -182,7 +182,7 @@ function drawContoursOverlay(points, dataType) {
         .x(d => d[0])
         .y(d => d[1])
         .size([imgWidth, imgHeight])
-        .bandwidth(20)(contourPoints);
+        .bandwidth(24)(contourPoints);
 
     // Determinar color según el tipo de datos
     const strokeColor = dataType === 'gaze' ? 'red' : 'orange';
@@ -274,7 +274,7 @@ function drawHeatmapOverlay(points, dataType) {
     });
 
     // Aplicar suavizado Gaussiano optimizado (sigma menor para mayor velocidad)
-    const sigma = 35; // Sigma fijo optimizado (no escalar con resolución)
+    const sigma = 24; // Sigma fijo optimizado (no escalar con resolución)
     const smoothedHeatmap = gaussianBlur(heatmap, sigma);
 
     // Encontrar el valor máximo para normalizar
@@ -1033,13 +1033,13 @@ function createBrushSelection(imageWrapper, img) {
 
         // Re-deshabilitar el botón Clear
         btnClear.classList.add('btn-disabled');
-        console.log('✅ Brush, tooltip, scarf plot y estado limpiados completamente');
+        console.log(' Brush, tooltip, scarf plot y estado limpiados completamente');
     });
 
     // img.parentNode.appendChild(btnClear);
     document.getElementById('img-view-controls').append(btnClear);
 
-    console.log('✅ Brush D3 creado exitosamente');
+    console.log(' Brush D3 creado exitosamente');
 }
 
 // Clase RadialGlyph (adaptada para tooltip)
@@ -4457,13 +4457,34 @@ function updateHighlightsGlobal() {
         d3.selectAll('.scarf-segment-' + window.selectedClass)
             .attr('opacity', d => 1);
 
-        // Cambiar automáticamente a segmentation cuando se selecciona una clase
-        if (currentImageMode !== 'segmentation' && currentImageSegmentationPath) {
+        // // Cambiar automáticamente a segmentation cuando se selecciona una clase
+        // if (currentImageMode !== 'segmentation' && currentImageSegmentationPath) {
+        //     switchImageView('segmentation');
+        // } else if (currentImageMode === 'segmentation') {
+        //     // Si ya estamos en segmentation, aplicar el filtro
+        //     applySegmentationFilter(window.selectedClass);
+        // }
+
+        //if (window.selectedClass != null) {
+            // Si no estamos en modo segmentación, cambiamos
+        if (currentImageMode !== 'segmentation') {
             switchImageView('segmentation');
-        } else if (currentImageMode === 'segmentation') {
-            // Si ya estamos en segmentation, aplicar el filtro
+            
+            // --- CORRECCIÓN 2: Esperar a que la imagen cargue ---
+            // Asignamos un evento one-time para aplicar el filtro apenas cargue
+            const img = document.getElementById('sel-img-view');
+            
+            // Pequeño hack: esperamos un poco o usamos el evento de carga global
+            // Lo ideal es llamar al filtro dentro de la función que carga la imagen
+            setTimeout(() => {
+                applySegmentationFilter(window.selectedClass); 
+            }, 100); // Espera breve para dar tiempo al cambio de src
+            
+        } else {
+            // Si ya estamos en segmentación, aplicamos directo
             applySegmentationFilter(window.selectedClass);
         }
+
     } else {
         // Restablecer opacidad completa en scarf plot
         d3.selectAll('.scarf-segment')
@@ -4491,7 +4512,6 @@ function visualizeHeatmap(data) {
         return;
     }
 
-    // MODIFICACIÓN: Guardar el mapeo de clase → color para usar en segmentación
     if (data.class_colors) {
         classColorMap = { ...data.class_colors };
         console.log('Updated classColorMap:', classColorMap);

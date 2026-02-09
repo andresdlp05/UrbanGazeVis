@@ -32,7 +32,7 @@ Sistema de visualización interactiva de datos de eye tracking con análisis de 
 git clone https://github.com/FGV-VIS-2025/UrbanGazeVis.git
 
 # 2. Navegar al directorio del proyecto
-cd trackvis
+cd UrbanGazeVis
 
 # 3. Construir y levantar los contenedores
 docker-compose up -d --build
@@ -48,7 +48,7 @@ docker-compose logs -f
 git clone https://github.com/FGV-VIS-2025/UrbanGazeVis.git
 
 # 2. Navegar al directorio del proyecto
-cd trackvis
+cd UrbanGazeVis
 
 # 3. Construir y levantar los contenedores
 docker-compose up -d --build
@@ -64,7 +64,7 @@ docker-compose logs -f
 git clone https://github.com/FGV-VIS-2025/UrbanGazeVis.git
 
 # 2. Navegar al directorio del proyecto
-cd trackvis
+cd UrbanGazeVis
 
 # 3. Construir y levantar los contenedores
 docker-compose up -d --build
