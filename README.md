@@ -227,3 +227,13 @@ docker system prune -a
 # Volver a construir
 docker-compose up -d --build
 ```
+
+
+############### 
+Modulos verificados 
+
+mixed_table_generator
+mixedEffectsResults
+generate_precalculated_fixations
+
+falta hacer el modulo para 

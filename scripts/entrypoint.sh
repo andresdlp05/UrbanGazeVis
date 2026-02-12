@@ -15,7 +15,7 @@ DATA_EXISTS=false
 
 if [ -f "/app/static/data/df_final1.csv" ] && \
    [ -f "/app/static/images/images/images/0.jpg" ] && \
-   [ -f "/app/static/images/images/images_seg/0.JPEG" ]; then
+   [ -f "/app/static/images/images/images_seg/0.png" ]; then
     echo "✅ Datos encontrados, saltando descarga"
     DATA_EXISTS=true
 else
@@ -27,7 +27,7 @@ fi
 if [ "$DATA_EXISTS" = false ]; then
     # Verificar si el script de descarga existe
     if [ -f "/app/scripts/download_images_configured.sh" ]; then
-        echo "📥 Ejecutando script de descarga..."
+        echo "Ejecutando script de descarga..."
         bash /app/scripts/download_images_configured.sh
     else
         echo "❌ ERROR: Script de descarga no encontrado"

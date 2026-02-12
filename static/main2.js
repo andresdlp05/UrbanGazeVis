@@ -54,7 +54,7 @@ function getSegmentationPath(imageId, datasetSelect) {
         case 'main_class':
         default:
             folder = 'images_seg';
-            extension = 'JPEG';
+            extension = 'png';
             break;
     }
 
@@ -5710,7 +5710,9 @@ document.getElementById("part-select-v3").addEventListener("change", function() 
     selectedPartV3 = this.value;
     const imgView = document.getElementById("sel-img-view-v3");
     currentImageOriginalPath = `/static/images/images/images/${selectedImgV3}.jpg`;
-    currentImageSegmentationPath = `/static/images/images/images_seg/${selectedImgV3}.jpeg`;
+    //currentImageSegmentationPath = `/static/images/images/images_seg/${selectedImgV3}.jpeg`;
+    currentImageSegmentationPath = `/static/images/images/images_seg/${selectedImgV3}.png`;
+
     currentImageMode = 'original';
     imgView.src = currentImageOriginalPath;
 

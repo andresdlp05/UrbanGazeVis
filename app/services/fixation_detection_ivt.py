@@ -362,7 +362,7 @@ def get_patch_fixations(data, image_id, pixel_bounds):
     cached = _fixation_cache.get(cache_key)
 
     if cached is None:
-        print(f"🔧 PATCH FIXATIONS: Calculando fijaciones globales para imagen {image_id} (cache miss)")
+        print(f" PATCH FIXATIONS: Calculando fijaciones globales para imagen {image_id} (cache miss)")
         full_result = get_fixations_ivt(
             data=image_data,
             participant_id=None,
@@ -437,12 +437,12 @@ def clear_fixation_cache(image_id=None):
     global _fixation_cache
     if image_id is None:
         _fixation_cache.clear()
-        print("🗑️ Cache de fijaciones completamente limpiado")
+        print(" Cache de fijaciones completamente limpiado")
     else:
         keys_to_remove = [k for k in _fixation_cache.keys() if f"img_{image_id}" in k]
         for key in keys_to_remove:
             del _fixation_cache[key]
-        print(f"🗑️ Cache limpiado para imagen {image_id}")
+        print(f" Cache limpiado para imagen {image_id}")
 
 
 def compare_fixation_results(result1, result2):
@@ -487,7 +487,7 @@ if __name__ == "__main__":
         print(f"- Participante {participant}: {count} fijaciones")
     
     # Probar funciones de compatibilidad
-    print(f"\n🔄 Probando funciones de compatibilidad:")
+    print(f"\n Probando funciones de compatibilidad:")
     
     # Probar get_participant_fixations
     participant_result = get_participant_fixations(df, participant_id=2, image_id=0)

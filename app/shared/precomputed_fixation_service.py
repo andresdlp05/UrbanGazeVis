@@ -239,7 +239,7 @@ class PrecomputedFixationService:
             'pixel_bounds': pixel_bounds
         }
         
-        print(f"🔍 FILTERED: {len(filtered_fixations)} fijaciones en región en {end_time - start_time:.4f}s")
+        print(f" FILTERED: {len(filtered_fixations)} fijaciones en región en {end_time - start_time:.4f}s")
         return result
     
     def get_semantic_transitions_fast(self, image_id, participant_id, min_duration=0.2, max_duration=5.0):
