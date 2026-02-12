@@ -97,17 +97,17 @@ def main():
     output_path = Path(__file__).parent / 'static' / 'data' / 'precalculated_saliency_coverage.csv'
 
     df = pd.read_csv(data_path)
-    print(f"   ✓ Cargado dataset: {len(df)} filas")
+    print(f"  Cargado dataset: {len(df)} filas")
 
     with open(scores_path, 'r') as f:
         scores_data = json.load(f)
-    print(f"   ✓ Cargado scores: {len(scores_data)} imágenes")
+    print(f"  Cargado scores: {len(scores_data)} imágenes")
 
     # Obtener combinaciones únicas de participante e imagen
     print("\n2. Identificando combinaciones únicas...")
     combinations = df[['participante', 'ImageName']].drop_duplicates()
     total_combinations = len(combinations)
-    print(f"   ✓ Total de combinaciones participante-imagen: {total_combinations}")
+    print(f"  Total de combinaciones participante-imagen: {total_combinations}")
 
     # Pre-calcular saliency coverage y entropy
     print("\n3. Calculando saliency coverage y entropy...")
@@ -156,13 +156,13 @@ def main():
             'gaze_points_count': len(image_data)
         })
 
-    print(f"   ✓ Completado: {len(results)} combinaciones procesadas")
+    print(f"  Completado: {len(results)} combinaciones procesadas")
 
     # Guardar resultados
     print(f"\n4. Guardando resultados en {output_path}...")
     results_df = pd.DataFrame(results)
     results_df.to_csv(output_path, index=False)
-    print(f"   ✓ Archivo guardado exitosamente")
+    print(f"  Archivo guardado exitosamente")
 
     # Estadísticas
     print("\n5. Estadísticas:")
@@ -173,7 +173,7 @@ def main():
     print(f"   - Entropy promedio: {results_df['stationary_entropy'].mean():.2f}")
 
     print("\n" + "=" * 80)
-    print("✓ PRE-CÁLCULO COMPLETADO EXITOSAMENTE")
+    print("PRE-CÁLCULO COMPLETADO EXITOSAMENTE")
     print("=" * 80)
 
 if __name__ == '__main__':

@@ -88,9 +88,9 @@ class ByParticipantController:
             saliency_cache_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.saliency_cache_path)
             if os.path.exists(saliency_cache_full_path):
                 self.saliency_cache = pd.read_csv(saliency_cache_full_path)
-                print(f"✓ Saliency coverage cache loaded: {len(self.saliency_cache)} records")
+                print(f" Saliency coverage cache loaded: {len(self.saliency_cache)} records")
             else:
-                print(f"⚠ Saliency coverage cache not found at: {saliency_cache_full_path}")
+                print(f" Saliency coverage cache not found at: {saliency_cache_full_path}")
                 print("   Run 'python precalculate_saliency_coverage.py' to generate it")
         except Exception as e:
             print(f"Error loading by_participant data: {e}")
