@@ -1,0 +1,81 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+static/data/*.zip
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+*.pdf
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code
+.claude/
+
+# Flask
+instance/
+.webassets-cache
+*.log
+
+# Data files (too large for GitHub)
+static/data/*.csv
+static/data/*.json
+static/cache/
+
+# Keep essential JSON files (small)
+!static/data/data_hololens.json
+!static/data/data_hololens_vectors.json
+
+# Images (can be large)
+static/images/**/*
+static/images/images/*.jpg
+static/images/images/*.png
+static/images/images/*.jpeg
+
+# Keep segmentation CSVs structure but not content
+static/images/images/datos_seg/*.csv
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Notebooks
+*.ipynb_checkpoints/
+*.ipynb
+# Documentation backups
+*.md.backup
+
+# Archives no usados (renombrados)
+app/controllers/*__.py
+app/controllers/*_old.py
+templates/*_old.html
+templates/*__.html
+static/data/

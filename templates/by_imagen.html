@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>By Imagen - Eye Tracking VIS</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #ffffff;
+            color: #333;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbar {
+            flex-shrink: 0;
+        }
+
+        .by-imagen-container {
+            display: flex;
+            height: calc(100vh - 64px);
+            gap: 0;
+            flex: 1;
+        }
+
+        /* ============ SIDEBAR IZQUIERDA ============ */
+        .sidebar-left {
+            width: 200px;
+            background: #ffffff;
+            height: 100%;
+            position: fixed;
+            left: 0;
+            top: 64px;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            z-index: 100;
+            overflow-y: auto;
+            gap: 15px;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sidebar-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .images-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .image-item {
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .image-item:hover {
+            background: #e8e8e8;
+            border-color: #999;
+        }
+
+        .image-item.active {
+            background: #333;
+            color: #ffffff;
+            border-color: #333;
+        }
+
+        .participants-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .participant-item {
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            text-align: center;
+            display: flex;
+        }
+
+        .participant-item:hover {
+            background: #e8e8e8;
+            border-color: #999;
+        }
+
+        .participant-item.active {
+            background: #0066cc;
+            color: #ffffff;
+            border-color: #0066cc;
+        }
+
+        /* ============ CONTENIDO PRINCIPAL ============ */
+        .main-content-by-imagen {
+            margin-left: 200px;
+            display: flex;
+            flex-direction: column;
+            width: calc(100% - 200px);
+            height: 100%;
+        }
+
+        /* Navbar interno */
+        .navbar-internal {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .navbar-internal h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* Contenido principal */
+        .content-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #ffffff;
+        }
+
+        .content-placeholder {
+            text-align: center;
+            color: #999;
+            padding: 40px 20px;
+        }
+
+        .content-placeholder p {
+            font-size: 18px;
+        }
+
+        .imagen-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .imagen-info strong {
+            color: #333;
+        }
+
+        .image-display-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+        }
+
+        .image-viewer {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f5;
+            border-radius: 4px;
+            min-height: 300px;
+            overflow: auto;
+        }
+
+        .image-viewer img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transform: scale(1.5);
+        }
+
+        .image-placeholder {
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+        }
+
+        /* Filtros avanzados */
+        .filter-section {
+            display: none;
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 10px;
+        }
+
+        .filter-section.active {
+            display: block;
+        }
+
+        .filter-group {
+            margin-bottom: 12px;
+        }
+
+        .filter-group-label {
+            font-size: 11px;
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            display: block;
+        }
+
+        .filter-options {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .filter-checkbox input {
+            cursor: pointer;
+            margin: 0;
+            width: 14px;
+            height: 14px;
+        }
+
+        .filter-checkbox label {
+            cursor: pointer;
+            margin: 0;
+            user-select: none;
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-md">
+        <div class="navbar-start">
+        </div>
+
+        <div class="navbar-end">
+            <a href="/dashboard" class="btn btn-primary">Back</a>
+        </div>
+    </div>
+
+    <!-- Container principal -->
+    <div class="by-imagen-container">
+        <!-- Sidebar Izquierda -->
+        <div class="sidebar-left">
+            <!-- Sección de Imágenes -->
+            <div class="sidebar-section">
+                <label class="sidebar-label">Images</label>
+                <div class="images-list" id="imagesList">
+                    <p style="font-size: 12px; color: #999; text-align: center;">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Sección de Participantes -->
+            <div class="sidebar-section">
+                <label class="sidebar-label">Participants</label>
+                <div class="participants-list" id="participantsList">
+                    <p style="font-size: 12px; color: #999; text-align: center;">Select an image</p>
+                </div>
+
+                <!-- Filtros avanzados (solo visible cuando se selecciona "All") -->
+                <div class="filter-section" id="filterSection">
+                    <div class="filter-group">
+                        <span class="filter-group-label">Gender</span>
+                        <div class="filter-options">
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-male" value="Male" onchange="applyFilters()">
+                                <label for="filter-male">Man</label>
+                            </div>
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-female" value="Female" onchange="applyFilters()">
+                                <label for="filter-female">Woman</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-group">
+                        <span class="filter-group-label">Nationality</span>
+                        <div class="filter-options">
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-brazil" value="Brasil" onchange="applyFilters()">
+                                <label for="filter-brazil">Brazil</label>
+                            </div>
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-foreign" value="Foreign" onchange="applyFilters()">
+                                <label for="filter-foreign">Foreigner</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-group">
+                        <span class="filter-group-label">Age</span>
+                        <div class="filter-options">
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-age-20" value="20" onchange="applyFilters()">
+                                <label for="filter-age-20">20</label>
+                            </div>
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-age-22" value="22" onchange="applyFilters()">
+                                <label for="filter-age-22">22</label>
+                            </div>
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-age-24" value="24" onchange="applyFilters()">
+                                <label for="filter-age-24">24</label>
+                            </div>
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-age-26" value="26" onchange="applyFilters()">
+                                <label for="filter-age-26">26</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-group">
+                        <span class="filter-group-label">Points</span>
+                        <div class="filter-options">
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-gaze" value="Gaze" onchange="applyFilters()">
+                                <label for="filter-gaze">Gaze</label>
+                            </div>
+                            <div class="filter-checkbox">
+                                <input type="checkbox" id="filter-fixations" value="Fixations" onchange="applyFilters()">
+                                <label for="filter-fixations">Fixations</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenido Principal -->
+        <div class="main-content-by-imagen">
+            <!-- Navbar interno con título -->
+      
+
+            <!-- Área de contenido -->
+            <div class="content-area">
+                <div id="mainContent" class="content-placeholder">
+                    <p>Select an image and participant to view details</p>
+                    <p style="font-size: 14px; color: #bbb; margin-top: 10px;">This page shows gaze tracking data organized by image</p>
+                </div>
+
+                <div id="imagenDisplayArea" class="image-display-container" style="display: none;">
+                    <div class="imagen-info" id="imagenInfo"></div>
+                    <div class="image-viewer" id="imageViewer">
+                        <div class="image-placeholder">Loading image...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedImage = null;
+        let selectedParticipant = null;
+        let allParticipantsData = [];
+        let participantsMetadata = {};
+
+        // Cargar imágenes al cargar la página
+        document.addEventListener('DOMContentLoaded', function() {
+            loadImages();
+            loadParticipantsMetadata();
+        });
+
+        /**
+         * Cargar metadata de participantes
+         */
+        function loadParticipantsMetadata() {
+            fetch('/static/data/Participants.json')
+                .then(response => response.json())
+                .then(data => {
+                    data.forEach(participant => {
+                        participantsMetadata[participant.Participant] = {
+                            sex: participant.Sex,
+                            country: participant.Country,
+                            age: participant.Age
+                        };
+                    });
+                })
+                .catch(error => console.error('Error loading participants metadata:', error));
+        }
+
+        /**
+         * Cargar lista de imágenes
+         */
+        function loadImages() {
+            const baseUrl = window.location.origin;
+            const apiUrl = `${baseUrl}/by-imagen/api/images`;
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Images loaded:', data);
+                    displayImages(data.images);
+                })
+                .catch(error => {
+                    console.error('Error loading images:', error);
+                });
+        }
+
+        /**
+         * Mostrar imágenes en la lista
+         */
+        function displayImages(images) {
+            const imagesList = document.getElementById('imagesList');
+            imagesList.innerHTML = '';
+
+            if (images.length === 0) {
+                imagesList.innerHTML = '<p style="font-size: 12px; color: #999; text-align: center;">No images found</p>';
+                return;
+            }
+
+            images.forEach(imageId => {
+                const imageItem = document.createElement('div');
+                imageItem.className = 'image-item';
+                imageItem.textContent = `Image ${imageId}`;
+                imageItem.addEventListener('click', function() {
+                    selectImage(imageId, this);
+                });
+                imagesList.appendChild(imageItem);
+            });
+        }
+
+        /**
+         * Seleccionar una imagen
+         */
+        function selectImage(imageId, element) {
+            // Remover clase active de todos los items
+            document.querySelectorAll('.image-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // Agregar clase active al item seleccionado
+            element.classList.add('active');
+            selectedImage = imageId;
+            selectedParticipant = null;
+
+            // Ocultar filtros y resetear
+            document.getElementById('filterSection').classList.remove('active');
+            document.querySelectorAll('.filter-checkbox input').forEach(input => {
+                input.checked = false;
+            });
+
+            // Cargar participantes
+            loadParticipantsForImage(imageId);
+
+            // Actualizar contenido principal
+            updateMainContent(imageId, null);
+        }
+
+        /**
+         * Cargar participantes para una imagen
+         */
+        function loadParticipantsForImage(imageId) {
+            const baseUrl = window.location.origin;
+            const apiUrl = `${baseUrl}/by-imagen/api/participants/${imageId}`;
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Participants loaded:', data);
+                    displayParticipants(data.participants);
+                })
+                .catch(error => {
+                    console.error('Error loading participants:', error);
+                });
+        }
+
+        /**
+         * Mostrar participantes en la lista
+         */
+        function displayParticipants(participants) {
+            const participantsList = document.getElementById('participantsList');
+            participantsList.innerHTML = '';
+            allParticipantsData = participants;
+
+            if (participants.length === 0) {
+                participantsList.innerHTML = '<p style="font-size: 12px; color: #999; text-align: center;">No participants</p>';
+                return;
+            }
+
+            // Agregar opción "All"
+            const allItem = document.createElement('div');
+            allItem.className = 'participant-item';
+            allItem.textContent = 'All';
+            allItem.addEventListener('click', function() {
+                selectParticipant('all', this);
+            });
+            participantsList.appendChild(allItem);
+
+            // Agregar participantes individuales
+            participants.forEach(participantId => {
+                const participantItem = document.createElement('div');
+                participantItem.className = 'participant-item';
+                participantItem.textContent = `P${participantId}`;
+                participantItem.addEventListener('click', function() {
+                    selectParticipant(participantId, this);
+                });
+                participantsList.appendChild(participantItem);
+            });
+        }
+
+        /**
+         * Seleccionar un participante
+         */
+        function selectParticipant(participantId, element) {
+            // Remover clase active de todos los items
+            document.querySelectorAll('.participant-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // Agregar clase active al item seleccionado
+            element.classList.add('active');
+            selectedParticipant = participantId;
+
+            // Mostrar/ocultar filtros
+            const filterSection = document.getElementById('filterSection');
+            if (participantId === 'all') {
+                filterSection.classList.add('active');
+                // Resetear filtros
+                document.querySelectorAll('.filter-checkbox input').forEach(input => {
+                    input.checked = false;
+                });
+                applyFilters();
+            } else {
+                filterSection.classList.remove('active');
+                // Mostrar todos los items de participantes
+                document.querySelectorAll('.participant-item').forEach(item => {
+                    item.style.display = 'flex';
+                });
+                updateMainContent(selectedImage, participantId);
+            }
+        }
+
+        /**
+         * Aplicar filtros seleccionados
+         */
+        function applyFilters() {
+            // Obtener filtros seleccionados
+            const genders = Array.from(document.querySelectorAll('#filter-male:checked, #filter-female:checked'))
+                .map(input => input.value);
+            const nationalities = Array.from(document.querySelectorAll('#filter-brazil:checked, #filter-foreign:checked'))
+                .map(input => input.value);
+            const ages = Array.from(document.querySelectorAll('[id^="filter-age"]:checked'))
+                .map(input => parseInt(input.value));
+            const pointTypes = Array.from(document.querySelectorAll('#filter-gaze:checked, #filter-fixations:checked'))
+                .map(input => input.value);
+
+            // Filtrar participantes basado en los criterios
+            let filteredParticipants = allParticipantsData.filter(pId => {
+                const meta = participantsMetadata[pId];
+                if (!meta) return false;
+
+                // Filtrar por género
+                if (genders.length > 0 && !genders.includes(meta.sex)) {
+                    return false;
+                }
+
+                // Filtrar por nacionalidad
+                if (nationalities.length > 0) {
+                    const isBrazilian = meta.country === 'Brasil';
+                    if (nationalities.includes('Brasil') && !isBrazilian) return false;
+                    if (nationalities.includes('Foreign') && isBrazilian) return false;
+                }
+
+                // Filtrar por edad
+                if (ages.length > 0 && !ages.includes(meta.age)) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            // Mostrar participantes filtrados
+            displayFilteredParticipants(filteredParticipants);
+
+            // Actualizar contenido principal con todos los participantes filtrados
+            if (selectedParticipant === 'all') {
+                updateMainContent(selectedImage, 'all', filteredParticipants);
+            }
+        }
+
+        /**
+         * Mostrar participantes filtrados
+         */
+        function displayFilteredParticipants(participants) {
+            const participantsList = document.getElementById('participantsList');
+            const items = participantsList.querySelectorAll('.participant-item');
+
+            // Ocultar todos los participantes excepto "All"
+            items.forEach((item, index) => {
+                if (index === 0) {
+                    item.style.display = 'flex'; // "All" siempre visible
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            // Mostrar solo los participantes filtrados
+            participants.forEach(pId => {
+                items.forEach((item, index) => {
+                    if (index > 0 && item.textContent === `P${pId}`) {
+                        item.style.display = 'flex';
+                    }
+                });
+            });
+        }
+
+        /**
+         * Actualizar contenido principal
+         */
+        function updateMainContent(imageId, participantId, filteredParticipants) {
+            const mainContent = document.getElementById('mainContent');
+            const imagenDisplayArea = document.getElementById('imagenDisplayArea');
+            const imagenInfo = document.getElementById('imagenInfo');
+
+            if (imageId === null) {
+                mainContent.style.display = 'block';
+                imagenDisplayArea.style.display = 'none';
+            } else if (participantId === null || participantId === 'all' && (!filteredParticipants || filteredParticipants.length === 0)) {
+                mainContent.style.display = 'block';
+                imagenDisplayArea.style.display = 'none';
+                if (participantId === 'all') {
+                    mainContent.innerHTML = `
+                        <p>Image ${imageId} selected</p>
+                        <p style="font-size: 14px; color: #bbb; margin-top: 10px;">Select filters to view aggregated data</p>
+                    `;
+                } else {
+                    mainContent.innerHTML = `
+                        <p>Image ${imageId} selected</p>
+                        <p style="font-size: 14px; color: #bbb; margin-top: 10px;">Select a participant to view details</p>
+                    `;
+                }
+            } else {
+                mainContent.style.display = 'none';
+                imagenDisplayArea.style.display = 'flex';
+
+                let infoText = '';
+                if (participantId === 'all' && filteredParticipants) {
+                    infoText = `
+                        <p><strong>Image:</strong> ${imageId}</p>
+                        <p><strong>Participants:</strong> ${filteredParticipants.length} selected</p>
+                    `;
+                } else {
+                    infoText = `
+                        <p><strong>Image:</strong> ${imageId}</p>
+                        <p><strong>Participant:</strong> P${participantId}</p>
+                    `;
+                }
+                imagenInfo.innerHTML = infoText;
+
+                // Display the image
+                displayImage(imageId);
+            }
+        }
+
+        /**
+         * Mostrar la imagen seleccionada
+         */
+        function displayImage(imageId) {
+            const imageViewer = document.getElementById('imageViewer');
+            const imagePath = `/static/images/images/images/${imageId}.jpg`;
+
+            imageViewer.innerHTML = `<img src="${imagePath}" alt="Image ${imageId}" onerror="handleImageError(${imageId})">`;
+        }
+
+        /**
+         * Manejar error al cargar la imagen
+         */
+        function handleImageError(imageId) {
+            const imageViewer = document.getElementById('imageViewer');
+            imageViewer.innerHTML = `
+                <div class="image-placeholder">
+                    <p>Error loading image ${imageId}</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
+<\!-- TEST MARKER sex, 21 de nov de 2025 10:33:19 -->

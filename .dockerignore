@@ -1,0 +1,69 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+venv/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+flask.log
+server.log
+
+# Temporary files
+*.tmp
+*.bak
+tmp/
+temp/
+
+# Documentation (no necesaria en imagen Docker)
+docs/
+*.md
+!README.md
+
+# Scripts de desarrollo
+run.sh
+run.bat
+scripts/cleanup.sh
+scripts/cleanup.bat
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints
+
+# Data backup
+*.csv.bak
+*.json.bak
+
+# Node modules (si los hay)
+node_modules/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

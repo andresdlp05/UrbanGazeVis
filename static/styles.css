@@ -1,0 +1,54 @@
+body {
+    font-family: "Inter", sans-serif;
+}
+
+#image-tooltip {
+    position: absolute;
+    pointer-events: none;
+}
+
+#sel-img-view {
+    max-width: calc(100% / 1.5);
+    max-height: calc(100% / 1.5);
+    transform: scale(1.5);
+    transform-origin: center center;
+}
+
+#brushOverlay {
+    transform: scale(1.5);
+    transform-origin: center center;
+}
+
+#overlay-points-container {
+    position: absolute;
+    pointer-events: none;
+    z-index: 1000;  /* Asegurar que siempre esté encima del brush (z-index: 10) */
+}
+
+/* Estilos para puntos de gaze y fixation overlay */
+.gaze-point {
+    position: absolute;
+    background: rgba(11, 168, 226, 0.6);  /* Celeste #0ba8e2 */
+    border-radius: 50%;
+    pointer-events: none;
+    width: 4px;
+    height: 4px;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+}
+
+.fixation-point {
+    position: absolute;
+    background: transparent;
+    border: 2px solid rgba(255, 165, 0, 0.8);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    z-index: 101;
+}
+
+/* Estilos para el contenedor del scarf plot */
+/*#scarf-plot {
+    overflow: auto;
+    position: relative;
+}*/

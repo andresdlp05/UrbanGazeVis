@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>By Participant - Eye Tracking VIS</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #ffffff;
+            color: #333;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbar {
+            flex-shrink: 0;
+        }
+
+        .by-participant-container {
+            display: flex;
+            height: calc(100vh - 64px);
+            gap: 0;
+            flex: 1;
+        }
+
+        /* ============ SIDEBAR IZQUIERDA ============ */
+        .sidebar-left {
+            width: 200px;
+            background: #ffffff;
+            height: 100%;
+            position: fixed;
+            left: 0;
+            top: 64px;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            z-index: 100;
+            overflow-y: auto;
+            gap: 15px;
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sidebar-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .select-participant {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+            background: #ffffff;
+            cursor: pointer;
+        }
+
+        .images-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .image-item {
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .image-item:hover {
+            background: #e8e8e8;
+            border-color: #999;
+        }
+
+        .image-item.active {
+            background: #333;
+            color: #ffffff;
+            border-color: #333;
+        }
+
+        /* ============ CONTENIDO PRINCIPAL ============ */
+        .main-content-by-participant {
+            margin-left: 200px;
+            display: flex;
+            flex-direction: column;
+            width: calc(100% - 200px);
+            height: 100%;
+        }
+
+        /* Navbar interno */
+        .navbar-internal {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .navbar-internal h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        /* Contenido principal */
+        .content-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #ffffff;
+        }
+
+        .content-placeholder {
+            text-align: center;
+            color: #999;
+            padding: 40px 20px;
+        }
+
+        .content-placeholder p {
+            font-size: 18px;
+        }
+
+        .participant-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .participant-info strong {
+            color: #333;
+        }
+
+        .image-display-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 100%;
+        }
+
+        .image-viewer {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f5;
+            border-radius: 4px;
+            min-height: 300px;
+            overflow: auto;
+        }
+
+        .image-viewer img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transform: scale(1.5);
+        }
+
+        .image-placeholder {
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+        }
+
+        .image-options {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .option-btn {
+            flex: 1;
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-align: center;
+            color: #333;
+        }
+
+        .option-btn:hover {
+            background: #e8e8e8;
+            border-color: #999;
+        }
+
+        .option-btn.active {
+            background: #0066cc;
+            color: #ffffff;
+            border-color: #0066cc;
+        }
+
+        /* Heatmap styles */
+        .heatmap-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #ffffff;
+            border-radius: 4px;
+            padding: 15px;
+            overflow: hidden;
+            min-height: 500px;
+        }
+
+        .heatmap-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            text-align: center;
+        }
+
+        #heatmap-plot {
+            flex: 1;
+            overflow: auto;
+            min-height: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 20px;
+        }
+
+        .heatmap-legend {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: #666;
+            justify-content: center;
+        }
+
+        .heatmap-legend-label {
+            font-weight: 500;
+        }
+
+        .heatmap-legend-bar {
+            width: 200px;
+            height: 20px;
+            display: flex;
+            border: 1px solid #ddd;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-md">
+        <div class="navbar-start">
+        </div>
+        <div class="navbar-center">
+            <a class="btn btn-ghost normal-case text-xl pointer-events-none">By Participant</a>
+        </div>
+        <div class="navbar-end">
+            <a href="/dashboard" class="btn btn-primary">Back</a>
+        </div>
+    </div>
+
+    <!-- Container principal -->
+    <div class="by-participant-container">
+        <!-- Sidebar Izquierda -->
+        <div class="sidebar-left">
+            <!-- Sección de Seleccionar Participante -->
+            <div class="sidebar-section">
+                <label class="sidebar-label">Participant</label>
+                <select id="participantSelect" class="select-participant">
+                    <option value="">Select a participant</option>
+                </select>
+            </div>
+
+            <!-- Sección de Imágenes - OCULTA cuando se selecciona participante -->
+            <div class="sidebar-section" id="imagesSection" style="display: none;">
+                <label class="sidebar-label">Images</label>
+                <div class="images-list" id="imagesList">
+                    <p style="font-size: 12px; color: #999; text-align: center;">Select a participant</p>
+                </div>
+
+                <!-- Sección de Opciones -->
+                <div class="image-options">
+                    <button class="option-btn active" id="btnNormalize" onclick="selectOption('normalize')">Normalize!</button>
+                    <button class="option-btn" id="btnAttention" onclick="selectOption('attention')">Attention</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenido Principal -->
+        <div class="main-content-by-participant">
+            <!-- Navbar interno con título -->
+
+            <!-- Área de contenido -->
+            <div class="content-area">
+                <div id="mainContent" class="content-placeholder">
+                    <p>Select a participant and image to view details</p>
+                    <p style="font-size: 14px; color: #bbb; margin-top: 10px;">This page shows gaze tracking data organized by participant</p>
+                </div>
+
+                <!-- Heatmap section (mostrado cuando se selecciona participante sin imagen) -->
+                <div id="heatmapDisplayArea" class="heatmap-container" style="display: none;">
+                    <div class="heatmap-title" id="heatmapTitle">Attention Heatmap</div>
+                    <div id="heatmap-plot"></div>
+                    <div class="heatmap-legend" id="heatmap-legend">
+                        <span class="heatmap-legend-label">Low</span>
+                        <div class="heatmap-legend-bar" id="heatmap-legend-bar"></div>
+                        <span class="heatmap-legend-label">High</span>
+                    </div>
+                </div>
+
+                <!-- Image display section (mostrado cuando se selecciona imagen) -->
+                <div id="imageDisplayArea" class="image-display-container" style="display: none;">
+                    <div class="participant-info" id="participantInfo"></div>
+                    <div class="image-viewer" id="imageViewer">
+                        <div class="image-placeholder">Loading image...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedParticipant = null;
+        let selectedImage = null;
+
+        // Cargar participantes al cargar la página
+        document.addEventListener('DOMContentLoaded', function() {
+            loadParticipants();
+
+            // Event listener para cambio de participante
+            document.getElementById('participantSelect').addEventListener('change', function(e) {
+                const participantId = parseInt(e.target.value);
+                if (participantId) {
+                    selectedParticipant = participantId;
+                    selectedImage = null;
+                    // Ocultar sección de imágenes
+                    document.getElementById('imagesSection').style.display = 'none';
+                    // Cargar heatmap cuando se selecciona participante
+                    loadHeatmap(participantId);
+                } else {
+                    selectedParticipant = null;
+                    clearImages();
+                }
+            });
+        });
+
+        /**
+         * Cargar lista de participantes
+         */
+        function loadParticipants() {
+            const baseUrl = window.location.origin;
+            const apiUrl = `${baseUrl}/by-participant/api/participants`;
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Participants loaded:', data);
+                    populateParticipantSelect(data.participants);
+                })
+                .catch(error => {
+                    console.error('Error loading participants:', error);
+                });
+        }
+
+        /**
+         * Llenar el dropdown de participantes
+         */
+        function populateParticipantSelect(participants) {
+            const select = document.getElementById('participantSelect');
+
+            participants.forEach(participant => {
+                const option = document.createElement('option');
+                option.value = participant;
+                option.textContent = `P${participant}`;
+                select.appendChild(option);
+            });
+        }
+
+        /**
+         * Cargar imágenes para un participante
+         */
+        function loadImagesForParticipant(participantId) {
+            const baseUrl = window.location.origin;
+            const apiUrl = `${baseUrl}/by-participant/api/images/${participantId}`;
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Images loaded for participant:', data);
+                    displayImages(data.images);
+                })
+                .catch(error => {
+                    console.error('Error loading images:', error);
+                });
+        }
+
+        /**
+         * Mostrar imágenes en la lista
+         */
+        function displayImages(images) {
+            const imagesList = document.getElementById('imagesList');
+            imagesList.innerHTML = '';
+
+            if (images.length === 0) {
+                imagesList.innerHTML = '<p style="font-size: 12px; color: #999; text-align: center;">No images found</p>';
+                return;
+            }
+
+            images.forEach(imageId => {
+                const imageItem = document.createElement('div');
+                imageItem.className = 'image-item';
+                imageItem.textContent = `Image ${imageId}`;
+                imageItem.addEventListener('click', function() {
+                    selectImage(imageId, this);
+                });
+                imagesList.appendChild(imageItem);
+            });
+        }
+
+        /**
+         * Seleccionar una imagen
+         */
+        function selectImage(imageId, element) {
+            // Remover clase active de todos los items
+            document.querySelectorAll('.image-item').forEach(item => {
+                item.classList.remove('active');
+            });
+
+            // Agregar clase active al item seleccionado
+            element.classList.add('active');
+            selectedImage = imageId;
+
+            // Actualizar contenido principal
+            updateMainContent(selectedParticipant, imageId);
+        }
+
+        /**
+         * Actualizar contenido principal
+         */
+        function updateMainContent(participantId, imageId) {
+            // Mostrar contenedor de imagen
+            const mainContent = document.getElementById('mainContent');
+            const imageDisplayArea = document.getElementById('imageDisplayArea');
+            const heatmapDisplayArea = document.getElementById('heatmapDisplayArea');
+            const participantInfo = document.getElementById('participantInfo');
+
+            // Ocultar todo primero
+            mainContent.style.display = 'none';
+            heatmapDisplayArea.style.display = 'none';
+            imageDisplayArea.style.display = 'flex';
+
+            // Actualizar información del participante
+            participantInfo.innerHTML = `
+                <p><strong>Participant:</strong> P${participantId}</p>
+                <p><strong>Image:</strong> ${imageId}</p>
+            `;
+
+            // Cargar y mostrar la imagen
+            displayImage(imageId);
+        }
+
+        /**
+         * Mostrar la imagen seleccionada
+         */
+        function displayImage(imageId) {
+            const imageViewer = document.getElementById('imageViewer');
+            const imagePath = `/static/images/images/images/${imageId}.jpg`;
+
+            imageViewer.innerHTML = `<img src="${imagePath}" alt="Image ${imageId}" onerror="handleImageError(${imageId})">`;
+        }
+
+        /**
+         * Manejar error al cargar la imagen
+         */
+        function handleImageError(imageId) {
+            const imageViewer = document.getElementById('imageViewer');
+            imageViewer.innerHTML = `
+                <div class="image-placeholder">
+                    <p>Error loading image ${imageId}</p>
+                </div>
+            `;
+        }
+
+        /**
+         * Limpiar lista de imágenes
+         */
+        function clearImages() {
+            const imagesList = document.getElementById('imagesList');
+            imagesList.innerHTML = '<p style="font-size: 12px; color: #999; text-align: center;">Select a participant</p>';
+            selectedImage = null;
+
+            const mainContent = document.getElementById('mainContent');
+            const imageDisplayArea = document.getElementById('imageDisplayArea');
+            const heatmapDisplayArea = document.getElementById('heatmapDisplayArea');
+
+            mainContent.style.display = 'block';
+            imageDisplayArea.style.display = 'none';
+            heatmapDisplayArea.style.display = 'none';
+
+            mainContent.innerHTML = `
+                <p>Select a participant and image to view details</p>
+                <p style="font-size: 14px; color: #bbb; margin-top: 10px;">This page shows gaze tracking data organized by participant</p>
+            `;
+        }
+
+        /**
+         * Cargar datos de heatmap para un participante
+         */
+        function loadHeatmap(participantId) {
+            const baseUrl = window.location.origin;
+            const apiUrl = `${baseUrl}/by-participant/api/heatmap/${participantId}`;
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        console.error('Error en respuesta:', data.error);
+                        showHeatmapError(data.error);
+                    } else {
+                        console.log('Heatmap data loaded:', data);
+                        // Mostrar solo la heatmap, sin imágenes
+                        visualizeHeatmap(data);
+                        updateHeatmapLegend(data);
+                        document.getElementById('mainContent').style.display = 'none';
+                        document.getElementById('imageDisplayArea').style.display = 'none';
+                        document.getElementById('heatmapDisplayArea').style.display = 'flex';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading heatmap:', error);
+                    showHeatmapError('Error cargando heatmap');
+                });
+        }
+
+        /**
+         * Visualizar heatmap con D3.js
+         */
+        function visualizeHeatmap(data) {
+            const container = document.getElementById('heatmap-plot');
+            container.innerHTML = ''; // Limpiar
+
+            if (!data.matrix_normalized || data.matrix_normalized.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #999;">No data available</p>';
+                return;
+            }
+
+            // Aumentar margen izquierdo dinámicamente según longitud de clases
+            const maxClassNameLength = Math.max(...data.classes.map(c => c.length));
+            const leftMargin = Math.min(300, Math.max(150, maxClassNameLength * 5));
+
+            const margin = { top: 20, right: 20, bottom: 120, left: leftMargin };
+            let containerWidth = container.clientWidth;
+            let containerHeight = container.clientHeight;
+
+            // Asegurar dimensiones mínimas
+            if (containerWidth <= 0) containerWidth = 800;
+            if (containerHeight <= 0) containerHeight = 500;
+
+            const width = Math.max(100, containerWidth - margin.left - margin.right);
+            const height = Math.max(100, containerHeight - margin.top - margin.bottom);
+
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', containerWidth)
+                .attr('height', containerHeight)
+                .append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Escala de colores (YlOrRd - Yellow-Orange-Red)
+            const colorScale = d3.scaleLinear()
+                .domain([0, 0.5, 1])
+                .range(['#ffffcc', '#ff7f00', '#d92000']);
+
+            // Calcular cellSize asegurando que siempre sea positivo
+            const cellSize = Math.max(8, Math.min(width / data.images.length, height / data.classes.length));
+            const actualWidth = cellSize * data.images.length;
+            const actualHeight = cellSize * data.classes.length;
+
+            // Dibujar celdas de la heatmap
+            for (let i = 0; i < data.classes.length; i++) {
+                for (let j = 0; j < data.images.length; j++) {
+                    const value = data.matrix_normalized[i][j] || 0;
+                    const rawValue = data.matrix_raw[i][j] || 0;
+                    const x = j * cellSize;
+                    const y = i * cellSize;
+
+                    svg.append('rect')
+                        .attr('x', x)
+                        .attr('y', y)
+                        .attr('width', cellSize)
+                        .attr('height', cellSize)
+                        .attr('fill', colorScale(value))
+                        .attr('stroke', '#fff')
+                        .attr('stroke-width', 0.5)
+                        .append('title')
+                        .text(`${data.classes[i]} - Image ${data.images[j]}: ${rawValue.toFixed(2)}`);
+                }
+            }
+
+            // Eje X - Imágenes
+            svg.append('g')
+                .attr('transform', `translate(0,${actualHeight})`)
+                .selectAll('text')
+                .data(data.images)
+                .enter()
+                .append('text')
+                .attr('x', (d, i) => i * cellSize + cellSize / 2)
+                .attr('y', 10)
+                .attr('text-anchor', 'start')
+                .attr('font-size', '10px')
+                .attr('transform', (d, i) => `rotate(90, ${i * cellSize + cellSize / 2}, 10)`)
+                .text(d => `${d}`);
+
+            // Eje Y - Clases (nombre completo)
+            svg.append('g')
+                .selectAll('text')
+                .data(data.classes)
+                .enter()
+                .append('text')
+                .attr('x', -10)
+                .attr('y', (d, i) => i * cellSize + cellSize / 2)
+                .attr('text-anchor', 'end')
+                .attr('dominant-baseline', 'middle')
+                .attr('font-size', '9px')
+                .text(d => d)
+                .append('title')
+                .text(d => d);
+
+            // Etiqueta X
+            svg.append('text')
+                .attr('x', actualWidth / 2)
+                .attr('y', actualHeight + margin.bottom - 10)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', '12px')
+                .text('Images');
+
+            // Etiqueta Y
+            svg.append('text')
+                .attr('transform', 'rotate(-90)')
+                .attr('x', -actualHeight / 2)
+                .attr('y', -margin.left + 20)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', '12px')
+                .text('Classes');
+        }
+
+        /**
+         * Actualizar leyenda del heatmap
+         */
+        function updateHeatmapLegend(data) {
+            const bar = document.getElementById('heatmap-legend-bar');
+            const gradient = [];
+            for (let i = 0; i <= 100; i += 10) {
+                const value = i / 100;
+                const color = d3.scaleLinear()
+                    .domain([0, 0.5, 1])
+                    .range(['#ffffcc', '#ff7f00', '#d92000'])(value);
+                gradient.push(`<div style="flex: 1; background-color: ${color};"></div>`);
+            }
+            bar.innerHTML = gradient.join('');
+
+            // Mostrar min/max valores
+            const info = document.getElementById('heatmap-legend');
+            const minMaxSpan = info.querySelector('.min-max-info') || document.createElement('span');
+            minMaxSpan.className = 'min-max-info';
+            minMaxSpan.style.cssText = 'margin-left: 10px; font-size: 10px; color: #666;';
+            minMaxSpan.textContent = `Min: ${data.min_value.toFixed(2)} | Max: ${data.max_value.toFixed(2)}`;
+            if (!info.querySelector('.min-max-info')) {
+                info.appendChild(minMaxSpan);
+            }
+        }
+
+        /**
+         * Mostrar error en heatmap
+         */
+        function showHeatmapError(message) {
+            const container = document.getElementById('heatmap-plot');
+            container.innerHTML = `<p style="text-align: center; color: #999;">${message}</p>`;
+        }
+
+        /**
+         * Seleccionar opción (Normalize o Attention)
+         */
+        function selectOption(option) {
+            // Remover clase active de todos los botones
+            document.getElementById('btnNormalize').classList.remove('active');
+            document.getElementById('btnAttention').classList.remove('active');
+
+            // Agregar clase active al botón seleccionado
+            if (option === 'normalize') {
+                document.getElementById('btnNormalize').classList.add('active');
+            } else if (option === 'attention') {
+                document.getElementById('btnAttention').classList.add('active');
+            }
+
+            // Aquí puedes agregar lógica para procesar la opción seleccionada
+            console.log(`Option selected: ${option}`);
+        }
+    </script>
+</body>
+</html>
