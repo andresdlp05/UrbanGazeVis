@@ -164,7 +164,7 @@ function drawContoursOverlay(points, dataType) {
         .style('top', imgOffsetTop + 'px')
         .style('left', imgOffsetLeft + 'px')
         .style('pointer-events', 'none')
-        .style('z-index', '1001');
+        .style('z-index', '1196');
 
     // CSV data coordinates are in 800x600 space
     const dataSpaceWidth = 800;
@@ -247,7 +247,7 @@ function drawHeatmapOverlay(points, dataType) {
     canvas.style.top = imgOffsetTop + 'px';
     canvas.style.left = imgOffsetLeft + 'px';
     canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '1001';
+    canvas.style.zIndex = '1196';
     imageWrapper.appendChild(canvas);
 
     const ctx = canvas.getContext('2d');
@@ -586,38 +586,38 @@ function filterPointsByParticipant(allPoints, participantId) {
 function updateOverlay() {
     console.log('updateOverlay called with types:', currentOverlayTypes, 'data type:', currentDataType, 'participant:', selectedPart);
     clearOverlayPoints();
+    const imgView = document.getElementById('sel-img-view');
 
     // Si no hay overlays seleccionados, no aplicar overlays
     if (!currentOverlayTypes || currentOverlayTypes.length === 0) {
+        if (imgView) imgView.style.opacity = '1';
         return;
     }
 
-    // Filtrar puntos por participante seleccionado
+    if (imgView) {
+        imgView.style.opacity = window.brushSelection ? '1' : '0.2';
+    }
+
     const gazeToVisualize = filterPointsByParticipant(allGazePointsWithParticipant, selectedPart);
     const fixationsToVisualize = filterPointsByParticipant(allFixationPointsWithParticipant, selectedPart);
 
-    // Asignar a las variables actuales para que las funciones de visualización las usen
     currentGazePoints = gazeToVisualize;
     currentFixationPoints = fixationsToVisualize;
 
-    // Renderizar cada overlay seleccionado simultáneamente
     currentOverlayTypes.forEach(overlayType => {
         if (overlayType === 'points') {
-            // Mostrar puntos según el tipo de datos seleccionado
             if (currentDataType === 'gaze') {
                 visualizeGazePointsOverlay();
             } else if (currentDataType === 'fixations') {
                 visualizeFixationPointsOverlay();
             }
         } else if (overlayType === 'contour') {
-            // Mostrar contornos según el tipo de datos seleccionado
             if (currentDataType === 'gaze') {
                 drawContoursOverlay(gazeToVisualize, 'gaze');
             } else if (currentDataType === 'fixations') {
                 drawContoursOverlay(fixationsToVisualize, 'fixations');
             }
         } else if (overlayType === 'heatmap') {
-            // Mostrar heatmap según el tipo de datos seleccionado
             if (currentDataType === 'gaze') {
                 drawHeatmapOverlay(gazeToVisualize, 'gaze');
             } else if (currentDataType === 'fixations') {
@@ -635,12 +635,10 @@ function loadAllPointsForImage(imageId) {
         return;
     }
 
-    // CSV data coordinates are in 800x600 space (not the actual image size)
     const dataSpaceWidth = 800;
     const dataSpaceHeight = 600;
     console.log(`Using data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
 
-    // Hacer fetch de TODOS los puntos para la imagen completa usando el tipo de datos actual
     fetch(`/api/analyze-area/${imageId}?data_type=${currentDataType}`, {
         method: 'POST',
         headers: {
@@ -657,19 +655,15 @@ function loadAllPointsForImage(imageId) {
     .then(data => {
         console.log('All points loaded for image:', imageId);
 
-        // Limpiar overlay antes de procesar nuevos puntos
         clearOverlayPoints();
 
-        // Procesar puntos de gaze y fixation (mantener información de participante)
         if (data.gaze_points && Array.isArray(data.gaze_points)) {
             allGazePointsWithParticipant = data.gaze_points.map(point => {
-                // Coordinates come in 800x600 native image space
-                // Scaling to display space is handled in visualizeGazePointsOverlay()
                 const rawX = point.x_centroid || point.pixelX || point.x || 0;
                 const rawY = point.y_centroid || point.pixelY || point.y || 0;
 
                 return {
-                    x: rawX,  // Keep native coordinates (800x600)
+                    x: rawX, 
                     y: rawY,
                     participante: point.participante || point.participant || null,
                     time: point.Time || point.time || 0  // Timestamp para filtrado temporal
@@ -683,8 +677,6 @@ function loadAllPointsForImage(imageId) {
 
         if (data.fixations && Array.isArray(data.fixations)) {
             allFixationPointsWithParticipant = data.fixations.map(point => {
-                // Coordinates come in 800x600 native image space
-                // Scaling to display space is handled in visualizeFixationPointsOverlay()
                 const rawX = point.x_centroid || point.x || 0;
                 const rawY = point.y_centroid || point.y || 0;
 
@@ -703,7 +695,6 @@ function loadAllPointsForImage(imageId) {
             }
         }
 
-        // Mostrar overlay si hay tipos seleccionados
         if (currentOverlayTypes && currentOverlayTypes.length > 0) {
             updateOverlay();
         }
@@ -993,6 +984,10 @@ function createBrushSelection(imageWrapper, img) {
         const runAnalysis = () => {
             const area = toCircleAreaData();
             window.brushSelection = [[area.x, area.y], [area.x + area.width, area.y + area.height]];
+            const imgView = document.getElementById('sel-img-view');
+            if (imgView && currentOverlayTypes && currentOverlayTypes.length > 0) {
+                imgView.style.opacity = '1';
+            }
             analyzeSelectedArea(area);
         };
 

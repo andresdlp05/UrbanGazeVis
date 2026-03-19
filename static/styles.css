@@ -22,7 +22,7 @@ body {
 #overlay-points-container {
     position: absolute;
     pointer-events: none;
-    z-index: 1000;  /* Asegurar que siempre esté encima del brush (z-index: 10) */
+    z-index: 1195;  /* Encima de la capa blanca (1190), debajo del selector (1200) */
 }
 
 /* Estilos para puntos de gaze y fixation overlay */

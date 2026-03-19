@@ -18,7 +18,6 @@ app = Flask(__name__)
 app.register_blueprint(glyph_bp)
 app.register_blueprint(by_participant_bp)
 
-# Cargar datos de gaze tracking
 def load_gaze_data():
     try:
         data_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'df_final1.csv')
@@ -27,7 +26,6 @@ def load_gaze_data():
         print(f"Error loading gaze data: {e}")
         return None
 
-# Crear mapeo de ImageName a ImageIndex
 def create_imagename_to_index_mapping():
     """Crea un mapeo de ImageName a ImageIndex para búsquedas rápidas"""
     if gaze_data is None:
@@ -46,7 +44,6 @@ def get_image_index_from_name(image_name):
             return int(result.iloc[0])
     return None
 
-# Cargar I-VT precalculados
 def load_ivt_cache():
     try:
         data_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'ivt_precalculated.csv')
