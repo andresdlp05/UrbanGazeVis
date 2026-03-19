@@ -8,6 +8,7 @@ from app.services.fixation_detection_ivt import get_fixations_ivt
 import random
 import json
 import os
+import math
 import pandas as pd
 import numpy as np
 
@@ -58,8 +59,140 @@ def load_ivt_cache():
         print(f"Error loading IVT cache: {e}")
         return None
 
+def load_hololens_data():
+    try:
+        data_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'data_hololens.json')
+        if os.path.exists(data_path):
+            with open(data_path, 'r') as f:
+                return json.loads(f.read())
+        print(f"Warning: Hololens data file not found at {data_path}")
+        return {}
+    except Exception as e:
+        print(f"Error loading Hololens data: {e}")
+        return {}
+
+def build_dataframe_cache_by_image(df, image_column='ImageName'):
+    cache = {}
+    if df is None or image_column not in df.columns:
+        return cache
+
+    try:
+        grouped = df.groupby(image_column, sort=False)
+        for image_id, group in grouped:
+            try:
+                key = int(image_id)
+            except (TypeError, ValueError):
+                continue
+            cache[key] = group
+    except Exception as e:
+        print(f"Warning: Could not build dataframe cache by image: {e}")
+    return cache
+
+def build_min_time_cache(df, time_column):
+    cache = {}
+    required_cols = {'ImageName', 'participante', time_column}
+    if df is None or not required_cols.issubset(df.columns):
+        return cache
+
+    try:
+        min_series = (
+            df.dropna(subset=['ImageName', 'participante', time_column])
+              .groupby(['ImageName', 'participante'])[time_column]
+              .min()
+        )
+
+        for (image_id, participant_id), min_time in min_series.items():
+            try:
+                image_key = int(image_id)
+                participant_key = int(participant_id)
+                min_time_val = float(min_time)
+            except (TypeError, ValueError):
+                continue
+
+            image_cache = cache.setdefault(image_key, {})
+            image_cache[participant_key] = min_time_val
+    except Exception as e:
+        print(f"Warning: Could not build min time cache ({time_column}): {e}")
+
+    return cache
+
+def build_participant_scores_cache(full_data):
+    cache = {}
+    if not full_data:
+        return cache
+
+    for image_id_str, image_data in full_data.items():
+        try:
+            image_id = int(image_id_str)
+        except (TypeError, ValueError):
+            continue
+
+        per_participant = {}
+        for score_info in image_data.get('score_participant', []):
+            participant = score_info.get('participant')
+            if participant is None:
+                continue
+            try:
+                participant_id = int(participant)
+            except (TypeError, ValueError):
+                continue
+
+            per_participant[participant_id] = {
+                'score': score_info.get('score'),
+                'age': score_info.get('age'),
+                'gender': score_info.get('gender'),
+                'state': score_info.get('state')
+            }
+
+        cache[image_id] = per_participant
+
+    return cache
+
+def get_combined_min_times(image_id, participant_id=None):
+    combined = {}
+
+    for src in (gaze_min_time_cache.get(image_id, {}), ivt_min_time_cache.get(image_id, {})):
+        for pid, min_time in src.items():
+            if participant_id is not None and int(pid) != int(participant_id):
+                continue
+            if pid not in combined:
+                combined[pid] = float(min_time)
+            else:
+                combined[pid] = min(combined[pid], float(min_time))
+
+    return combined
+
+def safe_clean_records(records):
+    if not records:
+        return records
+
+    for row in records:
+        for key, value in list(row.items()):
+            if isinstance(value, float):
+                if math.isnan(value) or math.isinf(value):
+                    row[key] = None
+            elif value is None:
+                continue
+            else:
+                try:
+                    if pd.isna(value):
+                        row[key] = None
+                except Exception:
+                    pass
+
+        if row.get('score') is None:
+            row['score'] = 5.0
+
+    return records
+
 gaze_data = load_gaze_data()
 ivt_cache = load_ivt_cache()
+hololens_data_cache = load_hololens_data()
+gaze_data_by_image = build_dataframe_cache_by_image(gaze_data)
+ivt_cache_by_image = build_dataframe_cache_by_image(ivt_cache)
+gaze_min_time_cache = build_min_time_cache(gaze_data, 'Time')
+ivt_min_time_cache = build_min_time_cache(ivt_cache, 'start')
+participant_scores_cache = build_participant_scores_cache(hololens_data_cache)
 imagename_to_index = create_imagename_to_index_mapping()
 
 @app.route('/api/heatmap/<int:image_id>', methods=['GET'])
@@ -136,8 +269,7 @@ def get_scarf_plot(image_id):
 
 @app.route('/', methods=['GET'])
 def main():
-    with open('static/data/data_hololens.json', 'r') as f:
-        full_data = json.loads(f.read())
+    full_data = hololens_data_cache
 
     # Obtener imágenes únicas de ImageName (en lugar de ImageIndex)
     unique_image_names = sorted(gaze_data['ImageName'].unique()) if gaze_data is not None else []
@@ -186,7 +318,10 @@ def get_gaze_data(image_id):
 
     try:
         # Filtrar datos de gaze por ImageName (image_id es el ImageName)
-        image_gaze_data = gaze_data[gaze_data['ImageName'] == image_id].copy()
+        if image_id in gaze_data_by_image:
+            image_gaze_data = gaze_data_by_image[image_id]
+        else:
+            image_gaze_data = gaze_data[gaze_data['ImageName'] == image_id]
 
         if len(image_gaze_data) == 0:
             return jsonify({'points': []})
@@ -280,12 +415,17 @@ def analyze_area(image_id):
         # Obtener TODOS los gaze data para esta imagen
         # IMPORTANTE: image_id es el ImageName (de la URL)
         t_step = time.time()
-        image_gaze_data = gaze_data[gaze_data['ImageName'] == image_id].copy()
+        if image_id in gaze_data_by_image:
+            image_gaze_data = gaze_data_by_image[image_id]
+        else:
+            image_gaze_data = gaze_data[gaze_data['ImageName'] == image_id]
 
         # Filtrar por participante si se especificó
         if participant_id is not None:
-            image_gaze_data = image_gaze_data[image_gaze_data['participante'] == participant_id].copy()
+            image_gaze_data = image_gaze_data[image_gaze_data['participante'] == participant_id]
             print(f"Filtering by participant: {participant_id}")
+
+        image_gaze_data = image_gaze_data.copy()
 
         timings['filter_gaze_data'] = (time.time() - t_step) * 1000
 
@@ -339,9 +479,7 @@ def analyze_area(image_id):
         gaze_records['ImageName'] = gaze_records['ImageName'].astype('int')
         gaze_records['participante'] = gaze_records['participante'].fillna(0).astype('int')
         gaze_records['ImageIndex'] = gaze_records['ImageIndex'].astype('int')
-
-        # Convertir a lista de diccionarios (vectorizado)
-        all_gaze_points = gaze_records.to_dict('records')
+        total_gaze_points = len(gaze_records)
 
         # Filtrar por área (rectangular o circular) usando operaciones vectorizadas
         if shape == 'circle':
@@ -360,40 +498,34 @@ def analyze_area(image_id):
 
         timings['gaze_processing'] = (time.time() - t_step) * 1000
 
-        print(f"Total gaze points in image: {len(all_gaze_points)}")
+        print(f"Total gaze points in image: {total_gaze_points}")
         print(f"Gaze points in area: {len(area_gaze_points)}")
         print(f"[TIMING] Gaze processing: {timings['gaze_processing']:.1f}ms")
 
         # Obtener fixations desde cache precalculado (VECTORIZADO)
         t_step = time.time()
         print(f"Processing FIXATIONS (from precalculated cache - vectorized)...")
-        all_fixations = []
+        total_fixations = 0
         area_fixations = []
+        image_fixations = None
 
         if ivt_cache is not None:
-            # CORRECCIÓN: Filtrar fixations por ImageName (no ImageIndex)
-            # ImageIndex en raw_gaze es secuencial por participante, pero ImageName es el ID real
-            image_fixations = ivt_cache[ivt_cache['ImageName'] == image_id].copy()
+            if image_id in ivt_cache_by_image:
+                image_fixations = ivt_cache_by_image[image_id]
+            else:
+                image_fixations = ivt_cache[ivt_cache['ImageName'] == image_id]
 
             # Filtrar por participante si se especificó
             if participant_id is not None:
-                image_fixations = image_fixations[image_fixations['participante'] == participant_id].copy()
+                image_fixations = image_fixations[image_fixations['participante'] == participant_id]
                 print(f"Filtering fixations by participant: {participant_id}")
 
-            if len(image_fixations) > 0:
-                # Asegurar tipos de datos correctos
-                image_fixations['participante'] = image_fixations['participante'].astype('int')
-                image_fixations['ImageIndex'] = image_fixations['ImageIndex'].astype('int')
-                image_fixations['start'] = image_fixations['start'].astype('float')
-                image_fixations['end'] = image_fixations['end'].astype('float')
-                image_fixations['duration'] = image_fixations['duration'].astype('float')
-                image_fixations['x_centroid'] = image_fixations['x_centroid'].astype('float')
-                image_fixations['y_centroid'] = image_fixations['y_centroid'].astype('float')
-                image_fixations['pointCount'] = image_fixations['pointCount'].astype('int')
-                image_fixations['class_names'] = [[]] * len(image_fixations)
+            image_fixations = image_fixations.copy()
+            total_fixations = len(image_fixations)
 
-                # Convertir a lista de diccionarios (vectorizado)
-                all_fixations = image_fixations.to_dict('records')
+            if total_fixations > 0:
+                if 'class_names' not in image_fixations.columns:
+                    image_fixations['class_names'] = [[] for _ in range(total_fixations)]
 
                 # Filtrar por área (rectangular o circular) usando Pandas (vectorizado)
                 if shape == 'circle':
@@ -410,62 +542,25 @@ def analyze_area(image_id):
                 area_fixations = image_fixations[fix_area_mask].to_dict('records')
         else:
             print("Warning: IVT cache not available, returning empty fixations")
-            all_fixations = []
+            total_fixations = 0
             area_fixations = []
 
         timings['fixations_processing'] = (time.time() - t_step) * 1000
 
-        print(f"Total fixations in image: {len(all_fixations)}")
+        print(f"Total fixations in image: {total_fixations}")
         print(f"Fixations in area: {len(area_fixations)}")
         print(f"[TIMING] Fixations processing: {timings['fixations_processing']:.1f}ms")
 
         # Normalizar tiempos para que comiencen en 0 (PER PARTICIPANTE, PER IMAGE)
         # IMPORTANTE: Cada participante ve cada imagen durante exactamente 15 segundos
         # Cuando ImageIndex cambia, el tiempo debe reiniciar en 0 para ese participante
-        # Los datos ya están filtrados por ImageName, así que participant_min_times
-        # representa el momento cuando cada participante comenzó a ver ESTA imagen
         t_step = time.time()
+        participant_min_times = get_combined_min_times(image_id, participant_id=participant_id)
 
-        # NOTA: NO se aplica offset de 4 segundos - los tiempos son correctos
-        # normalized_time = raw_time - min_time_para_esta_imagen
-        # Resultado: 0-15 segundos (el tiempo que el participante vio esta imagen)
-
-        # Calcular el tiempo mínimo POR PARTICIPANTE (para esta imagen específica)
-        # IMPORTANTE: Incluir datos de TODA la imagen, no solo del área seleccionada
-        # Esto asegura que los tiempos se normalicen correctamente
-        participant_min_times = {}
-
-        # Para ALL gaze points (no solo area_gaze_points)
-        if all_gaze_points:
-            for p in all_gaze_points:
-                participant = p.get('participante')
-                time_val = p.get('Time')
-                if participant is not None and time_val is not None:
-                    if participant not in participant_min_times:
-                        participant_min_times[participant] = time_val
-                    else:
-                        participant_min_times[participant] = min(participant_min_times[participant], time_val)
-
-        # Para ALL fixations (no solo area_fixations)
-        if all_fixations:
-            for f in all_fixations:
-                participant = f.get('participante')
-                start_time = f.get('start')
-                if participant is not None and start_time is not None:
-                    if participant not in participant_min_times:
-                        participant_min_times[participant] = start_time
-                    else:
-                        participant_min_times[participant] = min(participant_min_times[participant], start_time)
-
-        print(f"Normalization offsets per participant: {participant_min_times}")
-
-        # DEBUG: Log sample time values before normalization
-        if all_gaze_points:
-            sample_gaze_before = [p.get('Time') for p in all_gaze_points[:5]]
-            print(f"DEBUG: Sample gaze times BEFORE normalization: {sample_gaze_before}")
-        if all_fixations:
-            sample_fix_before = [f.get('start') for f in all_fixations[:5]]
-            print(f"DEBUG: Sample fixation starts BEFORE normalization: {sample_fix_before}")
+        # Fallback defensivo si algún participante no estuviera en caché
+        if not participant_min_times and len(gaze_records) > 0:
+            fallback_series = gaze_records.groupby('participante')['Time'].min()
+            participant_min_times = {int(pid): float(val) for pid, val in fallback_series.items()}
 
         # Aplicar normalización POR PARTICIPANTE
         def normalize_times_per_participant(data_list, time_field, participant_field='participante'):
@@ -478,29 +573,18 @@ def analyze_area(image_id):
                 if participant is None or time_val is None:
                     continue
 
-                # Si el participante no está en min_times, saltar (pero imprimir warning)
+                # Si no hay offset precomputado para el participante, saltar
                 if participant not in participant_min_times:
-                    print(f"Warning: Participant {participant} not in participant_min_times, skipping normalization for {time_field}")
                     continue
 
                 try:
-                    # Normalizar: restar el tiempo mínimo para este participante en esta imagen
-                    # Resultado: tiempos de 0-15 segundos (duración de visualización de imagen)
                     normalized_time = float(item[time_field]) - float(participant_min_times[participant])
-                    item[time_field] = float(normalized_time)  # Asegurar que es un float válido
+                    item[time_field] = float(normalized_time)
                 except (TypeError, ValueError) as e:
                     print(f"Warning: Could not normalize time for {time_field}: {e}, keeping original value")
-                    # Si hay error, dejar el valor original
             return data_list
 
-        # Normalizar gaze points (POR PARTICIPANTE)
-        all_gaze_points = normalize_times_per_participant(all_gaze_points, 'Time')
         area_gaze_points = normalize_times_per_participant(area_gaze_points, 'Time')
-
-        # DEBUG: Verificar que la normalización se aplicó
-        if area_gaze_points:
-            sample_times_after = [p.get('Time') for p in area_gaze_points[:5]]
-            print(f"DEBUG: Sample gaze times AFTER normalization: {sample_times_after}")
 
         # Normalizar fixations (POR PARTICIPANTE - start, end)
         def normalize_fixations_per_participant(fix_list):
@@ -509,95 +593,39 @@ def analyze_area(image_id):
                 if participant in participant_min_times:
                     try:
                         if fix.get('start') is not None:
-                            # Normalizar: restar tiempo mínimo para este participante en esta imagen
                             normalized_start = float(fix['start']) - float(participant_min_times[participant])
                             fix['start'] = float(normalized_start)
                         if fix.get('end') is not None:
-                            # Normalizar: restar tiempo mínimo para este participante en esta imagen
                             normalized_end = float(fix['end']) - float(participant_min_times[participant])
                             fix['end'] = float(normalized_end)
                     except (TypeError, ValueError) as e:
                         print(f"Warning: Could not normalize fixation times: {e}, keeping original values")
             return fix_list
 
-        all_fixations = normalize_fixations_per_participant(all_fixations)
         area_fixations = normalize_fixations_per_participant(area_fixations)
-
-        # DEBUG: Log sample time values after normalization
-        if all_gaze_points:
-            sample_gaze_after = [p.get('Time') for p in all_gaze_points[:5]]
-            print(f"DEBUG: Sample gaze times AFTER normalization (per-participant): {sample_gaze_after}")
-        if all_fixations:
-            sample_fix_after = [f.get('start') for f in all_fixations[:5]]
-            print(f"DEBUG: Sample fixation starts AFTER normalization (per-participant): {sample_fix_after}")
 
         timings['time_normalization'] = (time.time() - t_step) * 1000
 
         # Seleccionar qué datos usar para el análisis principal según data_type
         if data_type == 'fixations':
             area_data_points = area_fixations
-            total_data_points = len(all_fixations)
+            total_data_points = total_fixations
         else:  # data_type == 'gaze'
             area_data_points = area_gaze_points
-            total_data_points = len(all_gaze_points)
+            total_data_points = total_gaze_points
 
-        # Vectorized NaN cleaning usando Pandas (mucho más rápido que list comprehension)
+        # Limpieza de NaN/inf para serialización JSON
         t_step = time.time()
-
-        def clean_data_vectorized(data_list):
-            """Vectorized NaN cleaning - 20-30x más rápido que list comprehension"""
-            if not data_list:
-                return data_list
-
-            # Convertir a DataFrame para operaciones vectorizadas
-            df = pd.DataFrame(data_list)
-
-            # Rellenar NaN con None para todos los campos
-            df = df.where(pd.notna(df), None)
-
-            # Asegurar que 'score' siempre existe y tiene un valor por defecto
-            if 'score' in df.columns:
-                df['score'] = df['score'].fillna(5.0)
-            else:
-                df['score'] = 5.0
-
-            # Convertir back a lista de diccionarios
-            return df.to_dict('records')
-
-        # Procesar todos los datos con vectorización
-        area_gaze_points = clean_data_vectorized(area_gaze_points)
-        area_fixations = clean_data_vectorized(area_fixations)
-        area_data_points = clean_data_vectorized(area_data_points)
+        area_gaze_points = safe_clean_records(area_gaze_points)
+        area_fixations = safe_clean_records(area_fixations)
+        area_data_points = safe_clean_records(area_data_points)
 
         timings['data_cleanup'] = (time.time() - t_step) * 1000
 
         # NUEVO: Cargar scores de TODOS los participantes para esta imagen
         # desde data_hololens.json
         t_step = time.time()
-        participant_scores = {}
-        try:
-            with open('static/data/data_hololens.json', 'r') as f:
-                full_data = json.loads(f.read())
-
-            # Buscar la imagen en el JSON por ImageName (que es el image_id de la URL)
-            image_name = str(image_id)
-            if image_name in full_data:
-                image_data = full_data[image_name]
-                score_participant = image_data.get('score_participant', [])
-
-                # Crear diccionario de scores por participante
-                for score_info in score_participant:
-                    participant_id = score_info.get('participant')
-                    score = score_info.get('score')
-                    if participant_id is not None:
-                        participant_scores[int(participant_id)] = {
-                            'score': score,
-                            'age': score_info.get('age'),
-                            'gender': score_info.get('gender'),
-                            'state': score_info.get('state')
-                        }
-        except Exception as e:
-            print(f"Warning: Could not load participant scores: {e}")
+        participant_scores = dict(participant_scores_cache.get(image_id, {}))
 
         timings['participant_scores'] = (time.time() - t_step) * 1000
         timings['total'] = (time.time() - t_total_start) * 1000
