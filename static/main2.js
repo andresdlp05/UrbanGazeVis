@@ -32,6 +32,12 @@ var allGazePointsWithParticipant = []; // Todos los gaze points con información
 var imageScores = {}; // Scores promedio por imagen cargados desde data_hololens.json
 var allFixationPointsWithParticipant = []; // Todos los fixation points con información de participante
 var overlayContainer = null; // Contenedor para los puntos
+var circleSelectionState = null; // Estado del selector circular (pantalla)
+var circleSelectionDebounceTimer = null; // Debounce para análisis dinámico
+var areaAnalysisRequestCounter = 0; // Evitar aplicar respuestas viejas
+var areaAnalysisAbortController = null; // Cancelar request anterior en drag
+var lastAreaAnalysisSignature = null; // Evitar requests idénticos consecutivos
+const OUTSIDE_DIM_OPACITY = 0.8; // Equivale al efecto anterior de overlays (img opacity 0.2)
 
 // Función para obtener la ruta de segmentación según el dataset seleccionado
 function getSegmentationPath(imageId, datasetSelect) {
@@ -158,7 +164,7 @@ function drawContoursOverlay(points, dataType) {
         .style('top', imgOffsetTop + 'px')
         .style('left', imgOffsetLeft + 'px')
         .style('pointer-events', 'none')
-        .style('z-index', '1001');
+        .style('z-index', '1196');
 
     // CSV data coordinates are in 800x600 space
     const dataSpaceWidth = 800;
@@ -241,7 +247,7 @@ function drawHeatmapOverlay(points, dataType) {
     canvas.style.top = imgOffsetTop + 'px';
     canvas.style.left = imgOffsetLeft + 'px';
     canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '1001';
+    canvas.style.zIndex = '1196';
     imageWrapper.appendChild(canvas);
 
     const ctx = canvas.getContext('2d');
@@ -580,48 +586,38 @@ function filterPointsByParticipant(allPoints, participantId) {
 function updateOverlay() {
     console.log('updateOverlay called with types:', currentOverlayTypes, 'data type:', currentDataType, 'participant:', selectedPart);
     clearOverlayPoints();
-
     const imgView = document.getElementById('sel-img-view');
 
-    // Si no hay overlays seleccionados, restaurar opacidad normal
+    // Si no hay overlays seleccionados, no aplicar overlays
     if (!currentOverlayTypes || currentOverlayTypes.length === 0) {
-        if (imgView) {
-            imgView.style.opacity = '1';
-        }
+        if (imgView) imgView.style.opacity = '1';
         return;
     }
 
-    // Reducir opacidad de la imagen cuando hay overlay activo
     if (imgView) {
-        imgView.style.opacity = '0.2';
+        imgView.style.opacity = window.brushSelection ? '1' : '0.2';
     }
 
-    // Filtrar puntos por participante seleccionado
     const gazeToVisualize = filterPointsByParticipant(allGazePointsWithParticipant, selectedPart);
     const fixationsToVisualize = filterPointsByParticipant(allFixationPointsWithParticipant, selectedPart);
 
-    // Asignar a las variables actuales para que las funciones de visualización las usen
     currentGazePoints = gazeToVisualize;
     currentFixationPoints = fixationsToVisualize;
 
-    // Renderizar cada overlay seleccionado simultáneamente
     currentOverlayTypes.forEach(overlayType => {
         if (overlayType === 'points') {
-            // Mostrar puntos según el tipo de datos seleccionado
             if (currentDataType === 'gaze') {
                 visualizeGazePointsOverlay();
             } else if (currentDataType === 'fixations') {
                 visualizeFixationPointsOverlay();
             }
         } else if (overlayType === 'contour') {
-            // Mostrar contornos según el tipo de datos seleccionado
             if (currentDataType === 'gaze') {
                 drawContoursOverlay(gazeToVisualize, 'gaze');
             } else if (currentDataType === 'fixations') {
                 drawContoursOverlay(fixationsToVisualize, 'fixations');
             }
         } else if (overlayType === 'heatmap') {
-            // Mostrar heatmap según el tipo de datos seleccionado
             if (currentDataType === 'gaze') {
                 drawHeatmapOverlay(gazeToVisualize, 'gaze');
             } else if (currentDataType === 'fixations') {
@@ -639,12 +635,10 @@ function loadAllPointsForImage(imageId) {
         return;
     }
 
-    // CSV data coordinates are in 800x600 space (not the actual image size)
     const dataSpaceWidth = 800;
     const dataSpaceHeight = 600;
     console.log(`Using data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
 
-    // Hacer fetch de TODOS los puntos para la imagen completa usando el tipo de datos actual
     fetch(`/api/analyze-area/${imageId}?data_type=${currentDataType}`, {
         method: 'POST',
         headers: {
@@ -661,19 +655,15 @@ function loadAllPointsForImage(imageId) {
     .then(data => {
         console.log('All points loaded for image:', imageId);
 
-        // Limpiar overlay antes de procesar nuevos puntos
         clearOverlayPoints();
 
-        // Procesar puntos de gaze y fixation (mantener información de participante)
         if (data.gaze_points && Array.isArray(data.gaze_points)) {
             allGazePointsWithParticipant = data.gaze_points.map(point => {
-                // Coordinates come in 800x600 native image space
-                // Scaling to display space is handled in visualizeGazePointsOverlay()
                 const rawX = point.x_centroid || point.pixelX || point.x || 0;
                 const rawY = point.y_centroid || point.pixelY || point.y || 0;
 
                 return {
-                    x: rawX,  // Keep native coordinates (800x600)
+                    x: rawX, 
                     y: rawY,
                     participante: point.participante || point.participant || null,
                     time: point.Time || point.time || 0  // Timestamp para filtrado temporal
@@ -687,8 +677,6 @@ function loadAllPointsForImage(imageId) {
 
         if (data.fixations && Array.isArray(data.fixations)) {
             allFixationPointsWithParticipant = data.fixations.map(point => {
-                // Coordinates come in 800x600 native image space
-                // Scaling to display space is handled in visualizeFixationPointsOverlay()
                 const rawX = point.x_centroid || point.x || 0;
                 const rawY = point.y_centroid || point.y || 0;
 
@@ -707,7 +695,6 @@ function loadAllPointsForImage(imageId) {
             }
         }
 
-        // Mostrar overlay si hay tipos seleccionados
         if (currentOverlayTypes && currentOverlayTypes.length > 0) {
             updateOverlay();
         }
@@ -846,14 +833,25 @@ function resetSegmentationView() {
 }
 
 function createBrushSelection(imageWrapper, img) {
-    console.log('Creando brush D3 para selección de área...');
+    console.log('Creando selector circular para selección de área...');
 
-    // Remover brush anterior si existe
+    // Remover selector anterior si existe
     d3.select('#brushOverlay').remove();
-
-    // Variables de estado del brush
+    d3.select('#outsideDimLayer').remove();
+    d3.select('#glyphTooltip').remove();
+    currentGlyph = null;
     window.brushActive = false;
     window.brushSelection = null;
+    circleSelectionState = null;
+    if (circleSelectionDebounceTimer) {
+        clearTimeout(circleSelectionDebounceTimer);
+        circleSelectionDebounceTimer = null;
+    }
+    if (areaAnalysisAbortController) {
+        areaAnalysisAbortController.abort();
+        areaAnalysisAbortController = null;
+    }
+    lastAreaAnalysisSignature = null;
 
     // Esperar a que la imagen cargue completamente
     if (!img.complete || img.naturalWidth === 0) {
@@ -862,184 +860,339 @@ function createBrushSelection(imageWrapper, img) {
         return;
     }
 
-    // Obtener dimensiones sin escala usando offsetWidth/offsetHeight
-    const imgWidth = img.offsetWidth;
-    const imgHeight = img.offsetHeight;
+    const DATA_WIDTH = 800;
+    const DATA_HEIGHT = 600;
 
-    // Obtener dimensiones del contenedor para centrar
-    const containerWidth = imageWrapper.offsetWidth;
-    const containerHeight = imageWrapper.offsetHeight;
+    // Usar el tamaño visual real del img (post-transform) para evitar desalineaciones
+    const imgRect = img.getBoundingClientRect();
+    const wrapperRect = imageWrapper.getBoundingClientRect();
+    const imgWidth = imgRect.width;
+    const imgHeight = imgRect.height;
+    const svgOffsetLeft = imgRect.left - wrapperRect.left;
+    const svgOffsetTop = imgRect.top - wrapperRect.top;
+    const overlayPad = 2; // Compensa seams de subpíxel en bordes
+    const overlayWidth = Math.max(1, wrapperRect.width + overlayPad);
+    const overlayHeight = Math.max(1, wrapperRect.height + overlayPad);
 
-    // Calcular posición centrada (igual a cómo flex centra la imagen)
-    const svgOffsetLeft = (containerWidth - imgWidth) / 2;
-    const svgOffsetTop = (containerHeight - imgHeight) / 2;
+    const outsideDimLayer = d3.select(imageWrapper)
+        .append('div')
+        .attr('id', 'outsideDimLayer')
+        .style('position', 'absolute')
+        .style('top', '0px')
+        .style('left', '0px')
+        .style('width', overlayWidth + 'px')
+        .style('height', overlayHeight + 'px')
+        .style('pointer-events', 'none')
+        .style('z-index', '1190')
+        .style('display', 'none')
+        .style('background', 'transparent');
 
-    console.log(`Dimensiones de imagen (sin escala): ${imgWidth}x${imgHeight}`);
-    console.log(`Contenedor: ${containerWidth}x${containerHeight}`);
-    console.log(`Posición SVG centrada: left=${svgOffsetLeft}, top=${svgOffsetTop}`);
-
-    // Crear contenedor SVG para el brush
-    // El SVG ocupa todo el contenedor y está centrado junto con la imagen
-    // Cuando ambos se escalan 1.5x desde center center, se alinean
     const svgContainer = d3.select(imageWrapper)
         .append('svg')
         .attr('id', 'brushOverlay')
-        .attr('width', imgWidth)
-        .attr('height', imgHeight)
+        .attr('width', overlayWidth)
+        .attr('height', overlayHeight)
         .style('position', 'absolute')
-        .style('top', svgOffsetTop + 'px')
-        .style('left', svgOffsetLeft + 'px')
-        .style('width', imgWidth + 'px')
-        .style('height', imgHeight + 'px')
+        .style('top', '0px')
+        .style('left', '0px')
+        .style('width', overlayWidth + 'px')
+        .style('height', overlayHeight + 'px')
         .style('pointer-events', 'all')
-        .style('z-index', '10')
-        .style('cursor', 'crosshair');
+        .style('z-index', '1200')
+        .style('transform', 'none')
+        .style('transform-origin', 'center center')
+        .style('cursor', 'default');
 
-    // El brush ocupa todo el SVG (que tiene el mismo tamaño que la imagen)
-    // Ambos están centrados y se escalan 1.5x, así coinciden perfectamente
-    const brush = d3.brush()
-        .extent([[0, 0], [imgWidth, imgHeight]])
+    const outsideDimPath = svgContainer.append('path')
+        .attr('class', 'circle-selection-dim')
+        .style('fill', `rgba(255, 255, 255, ${OUTSIDE_DIM_OPACITY})`)
+        .style('fill-rule', 'evenodd')
+        .style('pointer-events', 'none')
+        .style('display', 'none');
+
+    const minRadiusDisplay = Math.max(4, Math.min(24, (Math.min(imgWidth, imgHeight) / 2) - 2));
+    const defaultRadius = Math.max(minRadiusDisplay, Math.min(imgWidth, imgHeight) * 0.22);
+
+    const selectionState = {
+        cx: imgWidth / 2,
+        cy: imgHeight / 2,
+        radius: defaultRadius
+    };
+    circleSelectionState = selectionState;
+
+    // Restaurar última selección circular cuando existe
+    if (currentAnalyzedArea && currentAnalyzedArea.shape === 'circle') {
+        const screenScaleX = imgWidth / DATA_WIDTH;
+        const screenScaleY = imgHeight / DATA_HEIGHT;
+        const restoredCenterX = currentAnalyzedArea.center_x;
+        const restoredCenterY = currentAnalyzedArea.center_y;
+        const restoredRadius = currentAnalyzedArea.radius;
+
+        if (Number.isFinite(restoredCenterX) && Number.isFinite(restoredCenterY) && Number.isFinite(restoredRadius)) {
+            selectionState.cx = restoredCenterX * screenScaleX;
+            selectionState.cy = (DATA_HEIGHT - restoredCenterY) * screenScaleY;
+            selectionState.radius = restoredRadius * ((screenScaleX + screenScaleY) / 2);
+        }
+    }
+
+    let userHasInteracted = false;
+
+    function clampSelection() {
+        // Permitir mover el círculo parcialmente fuera de la imagen para cubrir costados/esquinas
+        const overflowX = Math.max(40, Math.round(imgWidth * 0.4));
+        const overflowY = Math.max(40, Math.round(imgHeight * 0.4));
+
+        selectionState.cx = Math.max(-overflowX, Math.min(imgWidth + overflowX, selectionState.cx));
+        selectionState.cy = Math.max(-overflowY, Math.min(imgHeight + overflowY, selectionState.cy));
+
+        // Limitar radio con un máximo amplio (ya no forzamos que el círculo quede totalmente dentro)
+        const maxRadius = Math.max(
+            minRadiusDisplay,
+            Math.hypot(imgWidth + overflowX, imgHeight + overflowY)
+        );
+        selectionState.radius = Math.max(minRadiusDisplay, Math.min(selectionState.radius, maxRadius));
+    }
+
+    function toCircleAreaData() {
+        const dataScaleX = DATA_WIDTH / imgWidth;
+        const dataScaleY = DATA_HEIGHT / imgHeight;
+
+        const centerX = Math.round(selectionState.cx * dataScaleX);
+        const centerY = Math.round(DATA_HEIGHT - (selectionState.cy * dataScaleY));
+        const radius = Math.max(1, Math.round(selectionState.radius * ((dataScaleX + dataScaleY) / 2)));
+
+        const width = radius * 2;
+        const height = radius * 2;
+        const x = Math.max(0, centerX - radius);
+        const y = Math.max(0, centerY - radius);
+
+        return {
+            shape: 'circle',
+            center_x: centerX,
+            center_y: centerY,
+            radius: radius,
+            x: x,
+            y: y,
+            width: width,
+            height: height
+        };
+    }
+
+    function scheduleAreaAnalysis(immediate = false) {
+        if (!userHasInteracted) return;
+
+        const runAnalysis = () => {
+            const area = toCircleAreaData();
+            window.brushSelection = [[area.x, area.y], [area.x + area.width, area.y + area.height]];
+            const imgView = document.getElementById('sel-img-view');
+            if (imgView && currentOverlayTypes && currentOverlayTypes.length > 0) {
+                imgView.style.opacity = '1';
+            }
+            analyzeSelectedArea(area);
+        };
+
+        if (immediate) {
+            if (circleSelectionDebounceTimer) {
+                clearTimeout(circleSelectionDebounceTimer);
+                circleSelectionDebounceTimer = null;
+            }
+            runAnalysis();
+            return;
+        }
+
+        if (circleSelectionDebounceTimer) {
+            clearTimeout(circleSelectionDebounceTimer);
+        }
+        circleSelectionDebounceTimer = setTimeout(runAnalysis, 220);
+    }
+
+    function enableClearButton() {
+        const btnClear = document.getElementById('clearBrushBtn');
+        if (btnClear) btnClear.classList.remove('btn-disabled');
+    }
+
+    const selectionHitArea = svgContainer.append('circle')
+        .attr('class', 'circle-selection-hit')
+        .style('fill', 'transparent')
+        .style('cursor', 'move');
+
+    const selectionCircle = svgContainer.append('circle')
+        .attr('class', 'circle-selection-shape')
+        .style('fill', 'transparent')
+        .style('stroke', '#c85f78')
+        .style('stroke-width', '3px')
+        .style('pointer-events', 'none');
+
+    const resizeHandle = svgContainer.append('rect')
+        .attr('class', 'circle-selection-handle')
+        .attr('rx', 2)
+        .attr('ry', 2)
+        .style('fill', '#000')
+        .style('cursor', 'ns-resize')
+        .style('pointer-events', 'all');
+
+    function renderSelector() {
+        clampSelection();
+
+        const isVisible = userHasInteracted ? 'block' : 'none';
+        svgContainer.style('cursor', userHasInteracted ? 'default' : 'crosshair');
+        const screenCx = svgOffsetLeft + selectionState.cx;
+        const screenCy = svgOffsetTop + selectionState.cy;
+
+        selectionHitArea
+            .attr('cx', screenCx)
+            .attr('cy', screenCy)
+            .attr('r', selectionState.radius)
+            .style('display', isVisible);
+
+        selectionCircle
+            .attr('cx', screenCx)
+            .attr('cy', screenCy)
+            .attr('r', selectionState.radius)
+            .style('display', isVisible);
+
+        const handleWidth = Math.max(20, Math.round(selectionState.radius * 0.35));
+        const handleHeight = 10;
+        const marginFromCircle = 2;
+        const rawHandleY = screenCy + selectionState.radius + marginFromCircle;
+        const handleY = Math.min(rawHandleY, (svgOffsetTop + imgHeight) - handleHeight);
+
+        resizeHandle
+            .attr('x', screenCx - (handleWidth / 2))
+            .attr('y', handleY)
+            .attr('width', handleWidth)
+            .attr('height', handleHeight)
+            .style('display', isVisible);
+
+        const diameter = selectionState.radius * 2;
+        const maskPath = [
+            `M0,0 H${overlayWidth} V${overlayHeight} H0 Z`,
+            `M${screenCx - selectionState.radius},${screenCy}`,
+            `a${selectionState.radius},${selectionState.radius} 0 1,0 ${diameter},0`,
+            `a${selectionState.radius},${selectionState.radius} 0 1,0 -${diameter},0`
+        ].join(' ');
+
+        outsideDimLayer
+            .style('display', userHasInteracted ? 'block' : 'none')
+            .style(
+                'background',
+                `radial-gradient(circle at ${screenCx}px ${screenCy}px, rgba(255,255,255,0) ${selectionState.radius}px, rgba(255,255,255,${OUTSIDE_DIM_OPACITY}) ${selectionState.radius + 1}px)`
+            );
+
+        outsideDimPath
+            .attr('d', maskPath)
+            .style('display', 'none');
+    }
+
+    const moveDrag = d3.drag()
         .on('start', function() {
-            console.log('Brush iniciado');
             window.brushActive = true;
+            userHasInteracted = true;
+            enableClearButton();
         })
-        .on('brush', function(event) {
-            if (event.selection) {
-                window.brushSelection = event.selection;
-                console.log('Selección brush:', event.selection);
-            }
+        .on('drag', function(event) {
+            const [mx, my] = d3.pointer(event, svgContainer.node());
+            selectionState.cx = mx - svgOffsetLeft;
+            selectionState.cy = my - svgOffsetTop;
+            renderSelector();
+            scheduleAreaAnalysis(false);
         })
-        .on('end', function(event) {
-            console.log('Brush finalizado');
+        .on('end', function() {
             window.brushActive = false;
-
-            if (event.selection) {
-                const [[x0, y0], [x1, y1]] = event.selection;
-
-                console.log(`Selección brush (pantalla): (${x0.toFixed(1)}, ${y0.toFixed(1)}) to (${x1.toFixed(1)}, ${y1.toFixed(1)})`);
-
-                // IMPORTANTE: Los datos gaze están en espacio 800x600 (nativo)
-                // pero el brush está en espacio de pantalla (imgWidth x imgHeight)
-                // Necesitamos escalar las coordenadas del brush al espacio de datos
-                const DATA_WIDTH = 800;
-                const DATA_HEIGHT = 600;
-
-                const scaleX = DATA_WIDTH / imgWidth;
-                const scaleY = DATA_HEIGHT / imgHeight;
-
-                console.log(`Factores de escala: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)} (pantalla ${imgWidth}x${imgHeight} -> datos ${DATA_WIDTH}x${DATA_HEIGHT})`);
-
-                // Convertir coordenadas de pantalla a espacio de datos
-                // IMPORTANTE: Tanto Gaze como Fixations invierten Y en visualización (líneas 442 y 504)
-                // Por lo tanto, el brush debe invertir Y para AMBOS tipos de datos
-
-                // Ambos tipos invierten Y porque la visualización lo hace
-                const areaY = Math.round((DATA_HEIGHT - (y1 * scaleY)));
-                const areaHeight = Math.round((y1 - y0) * scaleY);
-
-                console.log(`Modo ${currentDataType}: Invirtiendo Y - y0_pantalla=${y0.toFixed(1)}, y1_pantalla=${y1.toFixed(1)} -> y_datos=${areaY}`);
-
-                const area = {
-                    x: Math.round(x0 * scaleX),
-                    y: areaY,
-                    width: Math.round((x1 - x0) * scaleX),
-                    height: areaHeight
-                };
-
-                console.log(`Área seleccionada (espacio datos): ${area.width}x${area.height}px en (${area.x}, ${area.y})`);
-
-                // Validar que el área no sea demasiado pequeña (en espacio de datos)
-                if (area.width < 40 || area.height < 40) {
-                    console.log('Área seleccionada muy pequeña (mínimo 40x40px en espacio de datos)');
-                    return;
-                }
-
-                console.log(`✅ Área para análisis: ${area.width}x${area.height}px en (${area.x}, ${area.y})`);
-
-                // Llamar función para generar glyph del área seleccionada
-                analyzeSelectedArea(area);
-            } else {
-                console.log('Selección cancelada');
-            }
+            scheduleAreaAnalysis(true);
         });
 
-    // Aplicar el brush al SVG
-    const brushGroup = svgContainer.append('g')
-        .attr('class', 'brush')
-        .call(brush);
-
-    // Personalizar el estilo del brush
-    brushGroup.selectAll('.overlay')
-        .style('fill-opacity', 0.5);
-
-    brushGroup.selectAll('.selection')
-        .style('stroke', '#ff6b35')
-        .style('stroke-width', '2px')
-        .style('fill', 'rgba(255, 107, 53, 0.1)')
-        .style('stroke-dasharray', '5,5');
-
-    // Agregar botón para limpiar selección directamente al SVG
-    /*const btnClear = document.createElement('button');
-    btnClear.id = 'clearBrushBtn';
-    btnClear.innerHTML = 'Clear';
-    btnClear.className = 'btn btn-xs';*/
-    /*btnClear.style.cssText = `
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        z-index: 20;
-        background: #ff6b35;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-    `;*/
-    const btnClear = document.getElementById('clearBrushBtn');
-    btnClear.classList.remove('btn-disabled');
-    btnClear.addEventListener('click', () => {
-        // Limpiar la selección del brush D3
-        brush.clear(brushGroup);
-        console.log('Selección limpiada');
-
-        // Remover el tooltip del glyph si está visible
-        d3.select('#glyphTooltip').remove();
-        console.log('Tooltip del glyph removido');
-
-        // Reset del área analizada y datos
-        currentAnalyzedArea = null;
-        currentAreaData = null;
-        console.log('Área analizada reseteada');
-
-        // Limpiar puntos y overlays del scarf plot
-        clearOverlayPoints();
-        removeBoundingBoxOverlay();
-        removeParticipantColumnHighlight();
-        removeScarfSegmentHighlight();
-        currentScarfSegment = null; // Resetear segmento del scarf
-        console.log('Selección del scarf plot limpiada');
-
-        // Desmarcar todos los checkboxes de overlay
-        const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
-        overlayCheckboxes.forEach(checkbox => {
-            checkbox.checked = false;
+    const resizeDrag = d3.drag()
+        .on('start', function() {
+            window.brushActive = true;
+            userHasInteracted = true;
+            enableClearButton();
+        })
+        .on('drag', function(event) {
+            const [mx, my] = d3.pointer(event, svgContainer.node());
+            const localX = mx - svgOffsetLeft;
+            const localY = my - svgOffsetTop;
+            const dx = localX - selectionState.cx;
+            const dy = localY - selectionState.cy;
+            selectionState.radius = Math.sqrt((dx * dx) + (dy * dy));
+            renderSelector();
+            scheduleAreaAnalysis(false);
+        })
+        .on('end', function() {
+            window.brushActive = false;
+            scheduleAreaAnalysis(true);
         });
 
-        // Limpiar overlays y restaurar opacidad
-        currentOverlayTypes = [];
-        updateOverlay();
-        console.log('Overlay checkboxes desmarcados');
+    selectionHitArea.call(moveDrag);
+    resizeHandle.call(resizeDrag);
 
-        // Re-deshabilitar el botón Clear
-        btnClear.classList.add('btn-disabled');
-        console.log(' Brush, tooltip, scarf plot y estado limpiados completamente');
+    // Activar selector recién con el primer clic sobre la imagen
+    svgContainer.on('click.circleSelectionActivate', function(event) {
+        if (window.brushActive || userHasInteracted) return;
+        const [mx, my] = d3.pointer(event, svgContainer.node());
+        const localX = mx - svgOffsetLeft;
+        const localY = my - svgOffsetTop;
+        if (localX < 0 || localX > imgWidth || localY < 0 || localY > imgHeight) return;
+        selectionState.cx = localX;
+        selectionState.cy = localY;
+        userHasInteracted = true;
+        enableClearButton();
+        renderSelector();
+        scheduleAreaAnalysis(true);
     });
 
-    // img.parentNode.appendChild(btnClear);
-    document.getElementById('img-view-controls').append(btnClear);
+    renderSelector();
 
-    console.log(' Brush D3 creado exitosamente');
+    const btnClear = document.getElementById('clearBrushBtn');
+    if (btnClear) {
+        btnClear.onclick = () => {
+            console.log('Limpiando selector circular');
+
+            if (circleSelectionDebounceTimer) {
+                clearTimeout(circleSelectionDebounceTimer);
+                circleSelectionDebounceTimer = null;
+            }
+            if (areaAnalysisAbortController) {
+                areaAnalysisAbortController.abort();
+                areaAnalysisAbortController = null;
+            }
+
+            window.brushSelection = null;
+            currentAnalyzedArea = null;
+            currentAreaData = null;
+            lastAreaAnalysisSignature = null;
+            d3.select('#glyphTooltip').remove();
+            currentGlyph = null;
+
+            clearOverlayPoints();
+            removeBoundingBoxOverlay();
+            removeParticipantColumnHighlight();
+            removeScarfSegmentHighlight();
+            currentScarfSegment = null;
+
+            const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
+            overlayCheckboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            currentOverlayTypes = [];
+            updateOverlay();
+
+            userHasInteracted = false;
+            selectionState.cx = imgWidth / 2;
+            selectionState.cy = imgHeight / 2;
+            selectionState.radius = defaultRadius;
+            renderSelector();
+
+            btnClear.classList.add('btn-disabled');
+            console.log('Selector circular, tooltip y estado limpiados');
+        };
+    }
+
+    const controlsContainer = document.getElementById('img-view-controls');
+    if (controlsContainer && btnClear) {
+        controlsContainer.append(btnClear);
+    }
+    console.log('Selector circular creado');
 }
 
 // Clase RadialGlyph (adaptada para tooltip)
@@ -2122,11 +2275,66 @@ class RadialGlyph {
     }
 }
 
+function buildAreaRequestPayload(area) {
+    const safeArea = area || {};
+    const x = Number.isFinite(safeArea.x) ? safeArea.x : 0;
+    const y = Number.isFinite(safeArea.y) ? safeArea.y : 0;
+    const width = Number.isFinite(safeArea.width) ? safeArea.width : 50;
+    const height = Number.isFinite(safeArea.height) ? safeArea.height : 50;
+
+    const payload = {
+        x: x,
+        y: y,
+        width: width,
+        height: height
+    };
+
+    if (safeArea.shape === 'circle') {
+        const fallbackCenterX = Math.round(x + (width / 2));
+        const fallbackCenterY = Math.round(y + (height / 2));
+        const fallbackRadius = Math.max(1, Math.round(Math.min(width, height) / 2));
+        payload.shape = 'circle';
+        payload.center_x = Number.isFinite(safeArea.center_x) ? safeArea.center_x : fallbackCenterX;
+        payload.center_y = Number.isFinite(safeArea.center_y) ? safeArea.center_y : fallbackCenterY;
+        payload.radius = Number.isFinite(safeArea.radius) ? safeArea.radius : fallbackRadius;
+    } else {
+        payload.shape = 'rectangle';
+    }
+
+    return payload;
+}
+
+function buildAreaSignature(payload, imageId, participantId, dataType) {
+    const participantKey = (participantId !== null && participantId !== 'all') ? String(participantId) : 'all';
+    if (payload.shape === 'circle') {
+        return [
+            imageId,
+            participantKey,
+            dataType,
+            'circle',
+            payload.center_x,
+            payload.center_y,
+            payload.radius
+        ].join('|');
+    }
+    return [
+        imageId,
+        participantKey,
+        dataType,
+        'rectangle',
+        payload.x,
+        payload.y,
+        payload.width,
+        payload.height
+    ].join('|');
+}
+
 function analyzeSelectedArea(area) {
-    console.log('Analizando área seleccionada:', area);
+    const requestPayload = buildAreaRequestPayload(area);
+    console.log('Analizando selección:', requestPayload);
 
     // Guardar el área actual para reutilizarla cuando cambie el tipo de datos
-    currentAnalyzedArea = area;
+    currentAnalyzedArea = requestPayload;
 
     const currentImage = selectedImg;
     if (!currentImage) {
@@ -2148,21 +2356,35 @@ function analyzeSelectedArea(area) {
         console.log(`Filtering glyph by participant: ${selectedPart}`);
     }
 
+    const currentSignature = buildAreaSignature(requestPayload, currentImage, selectedPart, dataType);
+    if (currentSignature === lastAreaAnalysisSignature) {
+        return;
+    }
+    lastAreaAnalysisSignature = currentSignature;
+
+    // Identificador para ignorar respuestas viejas cuando hay cambios dinámicos
+    const requestId = ++areaAnalysisRequestCounter;
+    if (areaAnalysisAbortController) {
+        areaAnalysisAbortController.abort();
+    }
+    areaAnalysisAbortController = new AbortController();
+
     // Llamar endpoint para obtener datos del área
     fetch(apiUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height
-        })
+        body: JSON.stringify(requestPayload),
+        signal: areaAnalysisAbortController.signal
     })
     .then(response => response.json())
     .then(data => {
+        if (requestId !== areaAnalysisRequestCounter) {
+            console.log(`Ignorando respuesta vieja de selección (requestId=${requestId})`);
+            return;
+        }
+
         console.log('Datos del área:', data);
         currentAreaData = data; // Guardar los datos
 
@@ -2174,154 +2396,124 @@ function analyzeSelectedArea(area) {
         console.log('Gaze points in overlay:', currentGazePoints.length);
         console.log('Fixation points in overlay:', currentFixationPoints.length);
 
-        showGlyphTooltip(area, data);
+        showGlyphTooltip(requestPayload, data);
     })
     .catch(error => {
+        if (error && error.name === 'AbortError') {
+            return;
+        }
+        lastAreaAnalysisSignature = null;
         console.error('Error analyzing area:', error);
     });
 }
 
 function showGlyphTooltip(area, data) {
-    // Remover tooltip anterior si existe
+    const imageWrapper = document.getElementById('component-1');
+    const img = document.getElementById('sel-img-view');
+    if (!imageWrapper || !img) return;
+
+    // Remover contenedor anterior (ya no usamos popup externo)
     d3.select('#glyphTooltip').remove();
 
-    // Verificar si hay datos para mostrar
     const hasData = data && (
         (data.data_for_analysis && data.data_for_analysis.length > 0) ||
         (data.fixations && data.fixations.length > 0)
     );
 
-    console.log(`showGlyphTooltip: hasData=${hasData}, data_for_analysis=${data?.data_for_analysis?.length || 0}, fixations=${data?.fixations?.length || 0}`);
-
-    // Crear contenedor del tooltip
-    const tooltip = d3.select('body')
-        .append('div')
-        .attr('id', 'glyphTooltip')
-        .style('position', 'fixed')
-        .style('background', 'white')
-        .style('border', '2px solid var(--color-base-300)')
-        .style('border-radius', '8px')
-        .style('padding', '21px')
-        .style('box-shadow', '0 8px 24px rgba(0,0,0,0.3)')
-        .style('z-index', '10000')
-        .style('width', '600px')
-        .style('height', '600px');
-
-    // Posicionar el tooltip a la derecha del glyph sin interferencias
-    const img = document.getElementById('sel-img-view');
     const imgRect = img.getBoundingClientRect();
+    const wrapperRect = imageWrapper.getBoundingClientRect();
+    const offsetX = imgRect.left - wrapperRect.left;
+    const offsetY = imgRect.top - wrapperRect.top;
+    const scaleX = imgRect.width / 800;
+    const scaleY = imgRect.height / 600;
 
-    const tooltipWidth = 600;
-    const tooltipHeight = 600;
-    const gap = 40;  // Aumentado de 15px a 40px para más separación
+    let centerX = null;
+    let centerY = null;
+    let radius = null;
 
-    // Posicionar a la derecha de la imagen, centrado verticalmente
-    let left = imgRect.right + gap;
-    let top = imgRect.top + (imgRect.height / 2) - (tooltipHeight / 2);
-
-    // Ajustar si se sale de la pantalla
-    if (left + tooltipWidth > window.innerWidth) {
-        // Si no cabe a la derecha, poner a la izquierda con el mismo gap
-        left = imgRect.left - tooltipWidth - gap;
-    }
-    if (left < 10) {
-        left = 10;
-    }
-    if (top < 10) top = 10;
-    if (top + tooltipHeight > window.innerHeight) top = window.innerHeight - tooltipHeight - 10;
-
-    console.log(`Posicionando tooltip sin interferencias: left=${left}, top=${top}, imgRight=${imgRect.right}`);
-
-    tooltip.style('left', left + 'px')
-        .style('top', top + 'px');
-
-    // Agregar etiqueta del tipo de datos
-    const dataTypeLabel = currentDataType === 'fixations' ? 'Fixations Points' : 'Gaze Points';
-    const labelColor = currentDataType === 'fixations' ? '#FF9500' : '#E53935';
-    const labelBgColor = currentDataType === 'fixations' ? '#FFF4E6' : '#FFEBEE';
-
-    /*tooltip.append('div')
-        .style('display', 'inline-block')
-        .style('background-color', labelBgColor)
-        .style('color', labelColor)
-        .style('padding', '5px 11px')
-        .style('border-radius', '4px')
-        .style('font-size', '15px')
-        .style('font-weight', 'bold')
-        .style('margin-bottom', '14px')
-        .text(dataTypeLabel);*/
-
-    // Si no hay datos, mostrar mensaje
-    if (!hasData) {
-        tooltip.append('div')
-            .style('padding', '56px 28px')
-            .style('text-align', 'center')
-            .style('color', '#666')
-            .style('font-size', '19px')
-            .html(`<div style="margin-bottom: 14px;">No hay datos ${dataTypeLabel.toLowerCase()} en esta área</div>
-                   <div style="font-size: 17px; color: #999;">Intenta seleccionar un área con puntos</div>`);
-
-        // Botón de cerrar
-        tooltip.append('button')
-            .text('✕')
-            .style('position', 'absolute')
-            .style('top', '7px')
-            .style('right', '7px')
-            .style('background', '#ff6b35')
-            .style('color', 'white')
-            .style('border', 'none')
-            .style('border-radius', '4px')
-            .style('padding', '7px 14px')
-            .style('cursor', 'pointer')
-            .style('font-size', '17px')
-            .on('click', function() {
-                d3.select('#glyphTooltip').remove();
-            });
-
+    if (area && area.shape === 'circle' &&
+        Number.isFinite(area.center_x) &&
+        Number.isFinite(area.center_y) &&
+        Number.isFinite(area.radius)) {
+        centerX = offsetX + (area.center_x * scaleX);
+        centerY = offsetY + ((600 - area.center_y) * scaleY);
+        radius = Math.max(24, area.radius * ((scaleX + scaleY) / 2));
+    } else if (circleSelectionState) {
+        centerX = offsetX + circleSelectionState.cx;
+        centerY = offsetY + circleSelectionState.cy;
+        radius = Math.max(24, circleSelectionState.radius);
+    } else {
         return;
     }
 
-    // Agregar contenedor del glyph
-    const glyphContainer = tooltip.append('div')
+    const selectionRadius = Math.max(24, radius);
+
+    // El círculo rojo (selección) debe quedar entre el anillo de sectores y las barras externas
+    const ringBoundaryRadius = selectionRadius;
+    const ring1OuterRadius = Math.max(16, Math.round(ringBoundaryRadius * 0.88));
+    const ring1InnerRadius = Math.max(10, Math.round(ringBoundaryRadius * 0.60));
+    const centerRadius = Math.max(8, Math.round(ringBoundaryRadius * 0.46));
+    const ring2InnerRadius = Math.max(ring1OuterRadius + 8, Math.round(ringBoundaryRadius * 1.06));
+    const ring2OuterRadius = Math.max(ring2InnerRadius + 18, Math.round(ringBoundaryRadius * 1.55));
+
+    const glyphCanvasRadius = Math.max(110, ring2OuterRadius + 40);
+    const glyphSize = Math.max(220, Math.floor(glyphCanvasRadius * 2));
+    const overlayLeft = centerX - glyphCanvasRadius;
+    const overlayTop = centerY - glyphCanvasRadius;
+    const glyphOverlay = d3.select(imageWrapper)
+        .append('div')
+        .attr('id', 'glyphTooltip')
+        .style('position', 'absolute')
+        .style('left', `${overlayLeft}px`)
+        .style('top', `${overlayTop}px`)
+        .style('width', `${glyphSize}px`)
+        .style('height', `${glyphSize}px`)
+        .style('border-radius', '0')
+        .style('overflow', 'visible')
+        .style('pointer-events', 'none')
+        .style('z-index', '1205')
+        .style('background', 'transparent');
+
+    if (!hasData) {
+        glyphOverlay.append('div')
+            .style('width', '100%')
+            .style('height', '100%')
+            .style('display', 'flex')
+            .style('align-items', 'center')
+            .style('justify-content', 'center')
+            .style('text-align', 'center')
+            .style('padding', '16px')
+            .style('font-size', '12px')
+            .style('font-weight', '600')
+            .style('color', '#555')
+            .text('No data');
+        currentGlyph = null;
+        return;
+    }
+
+    const glyphContainer = glyphOverlay.append('div')
         .attr('id', 'glyphContainer')
-        .attr('class', ' w-full h-full')
+        .style('width', '100%')
+        .style('height', '100%')
+        .style('display', 'flex')
+        .style('align-items', 'center')
+        .style('justify-content', 'center');
 
+    // ring1 queda dentro del círculo rojo y ring2 queda fuera para respetar la jerarquía visual
+    const margin = Math.max(12, Math.round(glyphSize * 0.08));
 
-    var glyphContainer_width = d3.select('#glyphContainer').node().getBoundingClientRect().width;
-    var glyphContainer_height = d3.select('#glyphContainer').node().getBoundingClientRect().height;
-
-    // Crear instancia del glyph y guardarla globalmente
     currentGlyph = new RadialGlyph('glyphContainer', {
-        width: glyphContainer_width,
-        height: glyphContainer_height,
-        margin: 30,
-        centerRadius: 60,
-        ring1InnerRadius: 75,
-        ring1OuterRadius: 127,
-        ring2InnerRadius: 142,
-        ring2OuterRadius: 209
+        width: glyphSize,
+        height: glyphSize,
+        margin: margin,
+        centerRadius: centerRadius,
+        ring1InnerRadius: ring1InnerRadius,
+        ring1OuterRadius: ring1OuterRadius,
+        ring2InnerRadius: ring2InnerRadius,
+        ring2OuterRadius: ring2OuterRadius
     });
 
-    // Actualizar con los datos
     currentGlyph.update(data);
-
-
-    // Botón de cerrar
-    tooltip.append('button')
-        .text('✕')
-        .style('position', 'absolute')
-        .style('top', '7px')
-        .style('right', '7px')
-        .style('background', '#ff6b35')
-        .style('color', 'white')
-        .style('border', 'none')
-        .style('border-radius', '4px')
-        .style('padding', '7px 14px')
-        .style('cursor', 'pointer')
-        .style('font-size', '17px')
-        .on('click', function() {
-            d3.select('#glyphTooltip').remove();
-        });
 }
 
 function switchImageView(mode) {
@@ -5494,6 +5686,12 @@ document.getElementById("img-select").addEventListener("change", function() {
         partSelect.value = "all";
     }
     selectedImg = this.value;
+    if (areaAnalysisAbortController) {
+        areaAnalysisAbortController.abort();
+        areaAnalysisAbortController = null;
+    }
+    areaAnalysisRequestCounter += 1;
+    lastAreaAnalysisSignature = null;
     const imgView = document.getElementById("sel-img-view");
     const imageWrapper = document.getElementById('component-1');
     if (selectedImage !== "all") {
@@ -5531,6 +5729,11 @@ document.getElementById("img-select").addEventListener("change", function() {
         originalSegmentationImage = null;
         // Remover brush
         d3.select('#brushOverlay').remove();
+        d3.select('#outsideDimLayer').remove();
+        d3.select('#glyphTooltip').remove();
+        currentGlyph = null;
+        currentAnalyzedArea = null;
+        currentAreaData = null;
     }
 });
 
@@ -5554,71 +5757,27 @@ function refetchAreaDataWithNewType(newDataType) {
 
     currentDataType = newDataType;
 
-    // Si hay área seleccionada, refetch el área
+    // Si hay área seleccionada, recalcular glyph con nuevo tipo de datos
     if (currentAnalyzedArea) {
-        // Construir URL con parámetro
-        const apiUrl = `/api/analyze-area/${selectedImg}?data_type=${newDataType}`;
-        console.log(`URL de fetch: ${apiUrl}`);
-        console.log(`Área actual: x=${currentAnalyzedArea.x}, y=${currentAnalyzedArea.y}, width=${currentAnalyzedArea.width}, height=${currentAnalyzedArea.height}`);
-
-        // Hacer fetch con el nuevo tipo de datos
-        fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                x: currentAnalyzedArea.x,
-                y: currentAnalyzedArea.y,
-                width: currentAnalyzedArea.width,
-                height: currentAnalyzedArea.height
-            })
-        })
-        .then(response => {
-            console.log(`Response status: ${response.status}`);
-            return response.json();
-        })
-        .then(data => {
-            console.log(`%c Datos recibidos:`, 'color: green; font-weight: bold');
-            console.log(`data_type: ${data.data_type}`);
-            console.log(`algorithm: ${data.algorithm}`);
-            console.log(`count: ${data.count}`);
-            console.log(`total_fixations_in_image: ${data.total_fixations_in_image}`);
-            console.log('Datos del área con nuevo tipo:', data);
-            currentAreaData = data;
-
-            // Actualizar el glyph con los nuevos datos
-            if (currentGlyph) {
-                currentGlyph.update(data);
-                console.log('Glyph actualizado con nuevos datos');
-            }
-
-            // Recargar heatmap con el nuevo tipo de datos
-            if (selectedImg) {
-                console.log(`Recargando heatmap con data_type=${newDataType}, mode=${currentHeatmapMode}`);
-                loadHeatmap(selectedImg, newDataType, currentHeatmapMode);
-            }
-
-            // Recargar scarf plot con el nuevo tipo de datos
-            if (selectedImg) {
-                console.log(`Recargando scarf plot con data_type=${newDataType}`);
-                loadScarfPlot(selectedImg, newDataType);
-            }
-        })
-        .catch(error => {
-            console.error('Error refetching data:', error);
-        });
+        const requestPayload = buildAreaRequestPayload(currentAnalyzedArea);
+        if (requestPayload.shape === 'circle') {
+            console.log(`Selección circular actual: cx=${requestPayload.center_x}, cy=${requestPayload.center_y}, r=${requestPayload.radius}`);
+        } else {
+            console.log(`Área actual: x=${requestPayload.x}, y=${requestPayload.y}, width=${requestPayload.width}, height=${requestPayload.height}`);
+        }
+        lastAreaAnalysisSignature = null;
+        analyzeSelectedArea(currentAnalyzedArea);
     } else {
-        // Si no hay área seleccionada, solo actualiza heatmap y scarf plot
         console.log('No hay área seleccionada, actualizando solo heatmap y scarf plot');
-        if (selectedImg) {
-            console.log(`Recargando heatmap con data_type=${newDataType}, mode=${currentHeatmapMode}`);
-            loadHeatmap(selectedImg, newDataType, currentHeatmapMode);
-        }
-        if (selectedImg) {
-            console.log(`Recargando scarf plot con data_type=${newDataType}`);
-            loadScarfPlot(selectedImg, newDataType);
-        }
+    }
+
+    if (selectedImg) {
+        console.log(`Recargando heatmap con data_type=${newDataType}, mode=${currentHeatmapMode}`);
+        loadHeatmap(selectedImg, newDataType, currentHeatmapMode);
+    }
+    if (selectedImg) {
+        console.log(`Recargando scarf plot con data_type=${newDataType}`);
+        loadScarfPlot(selectedImg, newDataType);
     }
 
     // IMPORTANTE: Recargar TODOS los puntos de la imagen con el nuevo tipo de datos
