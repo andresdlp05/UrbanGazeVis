@@ -1095,7 +1095,6 @@ function createBrushSelection(imageWrapper, img) {
             selectionState.cx = mx - svgOffsetLeft;
             selectionState.cy = my - svgOffsetTop;
             renderSelector();
-            scheduleAreaAnalysis(false);
         })
         .on('end', function() {
             window.brushActive = false;
@@ -1116,7 +1115,6 @@ function createBrushSelection(imageWrapper, img) {
             const dy = localY - selectionState.cy;
             selectionState.radius = Math.sqrt((dx * dx) + (dy * dy));
             renderSelector();
-            scheduleAreaAnalysis(false);
         })
         .on('end', function() {
             window.brushActive = false;
