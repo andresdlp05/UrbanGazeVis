@@ -223,11 +223,37 @@ def analyze_area(image_id):
         t_step = time.time()
 
         # Obtener coordenadas del área desde el request
-        area_data = request.get_json()
-        x = area_data.get('x', 0)
-        y = area_data.get('y', 0)
-        width = area_data.get('width', 50)
-        height = area_data.get('height', 50)
+        area_data = request.get_json() or {}
+
+        def to_float(value, default=0.0):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return float(default)
+
+        x = to_float(area_data.get('x', 0), 0)
+        y = to_float(area_data.get('y', 0), 0)
+        width = to_float(area_data.get('width', 50), 50)
+        height = to_float(area_data.get('height', 50), 50)
+
+        # Soporte para selección circular (centro+radio)
+        shape = str(area_data.get('shape', 'rectangle')).lower()
+        if shape in ['rect', 'box']:
+            shape = 'rectangle'
+        if shape not in ['rectangle', 'circle']:
+            shape = 'rectangle'
+
+        center_x = None
+        center_y = None
+        radius = None
+        if shape == 'circle':
+            center_x = to_float(area_data.get('center_x', x + (width / 2.0)), x + (width / 2.0))
+            center_y = to_float(area_data.get('center_y', y + (height / 2.0)), y + (height / 2.0))
+            radius = max(1.0, to_float(area_data.get('radius', min(width, height) / 2.0), min(width, height) / 2.0))
+            x = center_x - radius
+            y = center_y - radius
+            width = radius * 2.0
+            height = radius * 2.0
 
         # Obtener tipo de datos desde query parameter (fixations o gaze)
         data_type = request.args.get('data_type', 'fixations').lower()
@@ -249,6 +275,7 @@ def analyze_area(image_id):
         print(f"\n=== /api/analyze-area/{image_id} ===")
         print(f"data_type parameter: {data_type}")
         print(f"participant_id parameter: {participant_id}")
+        print(f"selection shape: {shape}")
 
         # Obtener TODOS los gaze data para esta imagen
         # IMPORTANTE: image_id es el ImageName (de la URL)
@@ -266,11 +293,24 @@ def analyze_area(image_id):
         print(f"[TIMING] Filter gaze data: {timings['filter_gaze_data']:.1f}ms")
 
         if len(image_gaze_data) == 0:
+            area_response = {
+                'shape': shape,
+                'x': x,
+                'y': y,
+                'width': width,
+                'height': height
+            }
+            if shape == 'circle':
+                area_response.update({
+                    'center_x': center_x,
+                    'center_y': center_y,
+                    'radius': radius
+                })
             return jsonify({
                 'fixations': [],
                 'count': 0,
                 'total_fixations_in_image': 0,
-                'area': {'x': x, 'y': y, 'width': width, 'height': height},
+                'area': area_response,
                 'participant_scores': {},
                 'algorithm': 'I-VT',
                 'parameters': {'velocity_threshold': 1.15, 'min_duration': 0.0},
@@ -303,13 +343,18 @@ def analyze_area(image_id):
         # Convertir a lista de diccionarios (vectorizado)
         all_gaze_points = gaze_records.to_dict('records')
 
-        # Filtrar por área rectangular usando operaciones de Pandas (mucho más rápido)
-        area_mask = (
-            (gaze_records['x_centroid'] >= x) &
-            (gaze_records['x_centroid'] <= x + width) &
-            (gaze_records['y_centroid'] >= y) &
-            (gaze_records['y_centroid'] <= y + height)
-        )
+        # Filtrar por área (rectangular o circular) usando operaciones vectorizadas
+        if shape == 'circle':
+            gaze_dx = gaze_records['x_centroid'] - center_x
+            gaze_dy = gaze_records['y_centroid'] - center_y
+            area_mask = (gaze_dx * gaze_dx + gaze_dy * gaze_dy) <= (radius * radius)
+        else:
+            area_mask = (
+                (gaze_records['x_centroid'] >= x) &
+                (gaze_records['x_centroid'] <= x + width) &
+                (gaze_records['y_centroid'] >= y) &
+                (gaze_records['y_centroid'] <= y + height)
+            )
         area_gaze_records = gaze_records[area_mask]
         area_gaze_points = area_gaze_records.to_dict('records')
 
@@ -350,13 +395,18 @@ def analyze_area(image_id):
                 # Convertir a lista de diccionarios (vectorizado)
                 all_fixations = image_fixations.to_dict('records')
 
-                # Filtrar por área rectangular usando Pandas (mucho más rápido)
-                fix_area_mask = (
-                    (image_fixations['x_centroid'] >= x) &
-                    (image_fixations['x_centroid'] <= x + width) &
-                    (image_fixations['y_centroid'] >= y) &
-                    (image_fixations['y_centroid'] <= y + height)
-                )
+                # Filtrar por área (rectangular o circular) usando Pandas (vectorizado)
+                if shape == 'circle':
+                    fix_dx = image_fixations['x_centroid'] - center_x
+                    fix_dy = image_fixations['y_centroid'] - center_y
+                    fix_area_mask = (fix_dx * fix_dx + fix_dy * fix_dy) <= (radius * radius)
+                else:
+                    fix_area_mask = (
+                        (image_fixations['x_centroid'] >= x) &
+                        (image_fixations['x_centroid'] <= x + width) &
+                        (image_fixations['y_centroid'] >= y) &
+                        (image_fixations['y_centroid'] <= y + height)
+                    )
                 area_fixations = image_fixations[fix_area_mask].to_dict('records')
         else:
             print("Warning: IVT cache not available, returning empty fixations")
@@ -558,6 +608,20 @@ def analyze_area(image_id):
         print(f"[TIMING] TOTAL API TIME: {timings['total']:.1f}ms")
         print(f"[TIMING] Breakdown: parse={timings['request_parsing']:.1f}ms, filter_gaze={timings['filter_gaze_data']:.1f}ms, gaze_proc={timings['gaze_processing']:.1f}ms, fix_proc={timings['fixations_processing']:.1f}ms, norm_time={timings['time_normalization']:.1f}ms, cleanup={timings['data_cleanup']:.1f}ms, scores={timings['participant_scores']:.1f}ms")
 
+        area_response = {
+            'shape': shape,
+            'x': x,
+            'y': y,
+            'width': width,
+            'height': height
+        }
+        if shape == 'circle':
+            area_response.update({
+                'center_x': center_x,
+                'center_y': center_y,
+                'radius': radius
+            })
+
         t_step = time.time()
         response = jsonify({
             'gaze_points': area_gaze_points,  # Puntos de gaze para overlay
@@ -565,12 +629,7 @@ def analyze_area(image_id):
             'data_for_analysis': area_data_points,  # Datos para análisis (gaze o fixations según data_type)
             'count': len(area_data_points),
             'total_fixations_in_image': total_data_points,
-            'area': {
-                'x': x,
-                'y': y,
-                'width': width,
-                'height': height
-            },
+            'area': area_response,
             'participant_scores': participant_scores,
             'data_type': data_type,  # Retornar el tipo de datos usado
             'algorithm': 'I-VT' if data_type == 'fixations' else 'Raw Gaze',

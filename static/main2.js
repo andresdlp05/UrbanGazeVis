@@ -32,6 +32,9 @@ var allGazePointsWithParticipant = []; // Todos los gaze points con información
 var imageScores = {}; // Scores promedio por imagen cargados desde data_hololens.json
 var allFixationPointsWithParticipant = []; // Todos los fixation points con información de participante
 var overlayContainer = null; // Contenedor para los puntos
+var circleSelectionState = null; // Estado del selector circular (pantalla)
+var circleSelectionDebounceTimer = null; // Debounce para análisis dinámico
+var areaAnalysisRequestCounter = 0; // Evitar aplicar respuestas viejas
 
 // Función para obtener la ruta de segmentación según el dataset seleccionado
 function getSegmentationPath(imageId, datasetSelect) {
@@ -846,14 +849,17 @@ function resetSegmentationView() {
 }
 
 function createBrushSelection(imageWrapper, img) {
-    console.log('Creando brush D3 para selección de área...');
+    console.log('Creando selector circular para selección de área...');
 
-    // Remover brush anterior si existe
+    // Remover selector anterior si existe
     d3.select('#brushOverlay').remove();
-
-    // Variables de estado del brush
     window.brushActive = false;
     window.brushSelection = null;
+    circleSelectionState = null;
+    if (circleSelectionDebounceTimer) {
+        clearTimeout(circleSelectionDebounceTimer);
+        circleSelectionDebounceTimer = null;
+    }
 
     // Esperar a que la imagen cargue completamente
     if (!img.complete || img.naturalWidth === 0) {
@@ -861,6 +867,9 @@ function createBrushSelection(imageWrapper, img) {
         setTimeout(() => createBrushSelection(imageWrapper, img), 100);
         return;
     }
+
+    const DATA_WIDTH = 800;
+    const DATA_HEIGHT = 600;
 
     // Obtener dimensiones sin escala usando offsetWidth/offsetHeight
     const imgWidth = img.offsetWidth;
@@ -874,13 +883,6 @@ function createBrushSelection(imageWrapper, img) {
     const svgOffsetLeft = (containerWidth - imgWidth) / 2;
     const svgOffsetTop = (containerHeight - imgHeight) / 2;
 
-    console.log(`Dimensiones de imagen (sin escala): ${imgWidth}x${imgHeight}`);
-    console.log(`Contenedor: ${containerWidth}x${containerHeight}`);
-    console.log(`Posición SVG centrada: left=${svgOffsetLeft}, top=${svgOffsetTop}`);
-
-    // Crear contenedor SVG para el brush
-    // El SVG ocupa todo el contenedor y está centrado junto con la imagen
-    // Cuando ambos se escalan 1.5x desde center center, se alinean
     const svgContainer = d3.select(imageWrapper)
         .append('svg')
         .attr('id', 'brushOverlay')
@@ -893,153 +895,249 @@ function createBrushSelection(imageWrapper, img) {
         .style('height', imgHeight + 'px')
         .style('pointer-events', 'all')
         .style('z-index', '10')
-        .style('cursor', 'crosshair');
+        .style('cursor', 'default');
 
-    // El brush ocupa todo el SVG (que tiene el mismo tamaño que la imagen)
-    // Ambos están centrados y se escalan 1.5x, así coinciden perfectamente
-    const brush = d3.brush()
-        .extent([[0, 0], [imgWidth, imgHeight]])
+    const minRadiusDisplay = Math.max(4, Math.min(24, (Math.min(imgWidth, imgHeight) / 2) - 2));
+    const defaultRadius = Math.max(minRadiusDisplay, Math.min(imgWidth, imgHeight) * 0.22);
+
+    const selectionState = {
+        cx: imgWidth / 2,
+        cy: imgHeight / 2,
+        radius: defaultRadius
+    };
+    circleSelectionState = selectionState;
+
+    // Restaurar última selección circular cuando existe
+    if (currentAnalyzedArea && currentAnalyzedArea.shape === 'circle') {
+        const screenScaleX = imgWidth / DATA_WIDTH;
+        const screenScaleY = imgHeight / DATA_HEIGHT;
+        const restoredCenterX = currentAnalyzedArea.center_x;
+        const restoredCenterY = currentAnalyzedArea.center_y;
+        const restoredRadius = currentAnalyzedArea.radius;
+
+        if (Number.isFinite(restoredCenterX) && Number.isFinite(restoredCenterY) && Number.isFinite(restoredRadius)) {
+            selectionState.cx = restoredCenterX * screenScaleX;
+            selectionState.cy = (DATA_HEIGHT - restoredCenterY) * screenScaleY;
+            selectionState.radius = restoredRadius * ((screenScaleX + screenScaleY) / 2);
+        }
+    }
+
+    let userHasInteracted = false;
+
+    function clampSelection() {
+        // Mantener el centro con margen suficiente para el radio mínimo
+        if (imgWidth > (minRadiusDisplay * 2)) {
+            selectionState.cx = Math.max(minRadiusDisplay, Math.min(imgWidth - minRadiusDisplay, selectionState.cx));
+        } else {
+            selectionState.cx = imgWidth / 2;
+        }
+
+        if (imgHeight > (minRadiusDisplay * 2)) {
+            selectionState.cy = Math.max(minRadiusDisplay, Math.min(imgHeight - minRadiusDisplay, selectionState.cy));
+        } else {
+            selectionState.cy = imgHeight / 2;
+        }
+
+        // Mantener el círculo totalmente dentro de la imagen
+        const maxRadius = Math.max(
+            2,
+            Math.min(
+                selectionState.cx,
+                selectionState.cy,
+                imgWidth - selectionState.cx,
+                imgHeight - selectionState.cy
+            )
+        );
+        const effectiveMinRadius = Math.min(minRadiusDisplay, maxRadius);
+        selectionState.radius = Math.max(effectiveMinRadius, Math.min(selectionState.radius, maxRadius));
+    }
+
+    function toCircleAreaData() {
+        const dataScaleX = DATA_WIDTH / imgWidth;
+        const dataScaleY = DATA_HEIGHT / imgHeight;
+
+        const centerX = Math.round(selectionState.cx * dataScaleX);
+        const centerY = Math.round(DATA_HEIGHT - (selectionState.cy * dataScaleY));
+        const radius = Math.max(1, Math.round(selectionState.radius * ((dataScaleX + dataScaleY) / 2)));
+
+        const width = radius * 2;
+        const height = radius * 2;
+        const x = Math.max(0, centerX - radius);
+        const y = Math.max(0, centerY - radius);
+
+        return {
+            shape: 'circle',
+            center_x: centerX,
+            center_y: centerY,
+            radius: radius,
+            x: x,
+            y: y,
+            width: width,
+            height: height
+        };
+    }
+
+    function scheduleAreaAnalysis(immediate = false) {
+        if (!userHasInteracted) return;
+
+        const runAnalysis = () => {
+            const area = toCircleAreaData();
+            window.brushSelection = [[area.x, area.y], [area.x + area.width, area.y + area.height]];
+            analyzeSelectedArea(area);
+        };
+
+        if (immediate) {
+            if (circleSelectionDebounceTimer) {
+                clearTimeout(circleSelectionDebounceTimer);
+                circleSelectionDebounceTimer = null;
+            }
+            runAnalysis();
+            return;
+        }
+
+        if (circleSelectionDebounceTimer) {
+            clearTimeout(circleSelectionDebounceTimer);
+        }
+        circleSelectionDebounceTimer = setTimeout(runAnalysis, 120);
+    }
+
+    function enableClearButton() {
+        const btnClear = document.getElementById('clearBrushBtn');
+        if (btnClear) btnClear.classList.remove('btn-disabled');
+    }
+
+    const selectionHitArea = svgContainer.append('circle')
+        .attr('class', 'circle-selection-hit')
+        .style('fill', 'transparent')
+        .style('cursor', 'move');
+
+    const selectionCircle = svgContainer.append('circle')
+        .attr('class', 'circle-selection-shape')
+        .style('fill', 'rgba(205, 95, 118, 0.15)')
+        .style('stroke', '#c85f78')
+        .style('stroke-width', '3px')
+        .style('pointer-events', 'none');
+
+    const resizeHandle = svgContainer.append('rect')
+        .attr('class', 'circle-selection-handle')
+        .attr('rx', 2)
+        .attr('ry', 2)
+        .style('fill', '#000')
+        .style('cursor', 'ns-resize')
+        .style('pointer-events', 'all');
+
+    function renderSelector() {
+        clampSelection();
+
+        selectionHitArea
+            .attr('cx', selectionState.cx)
+            .attr('cy', selectionState.cy)
+            .attr('r', selectionState.radius);
+
+        selectionCircle
+            .attr('cx', selectionState.cx)
+            .attr('cy', selectionState.cy)
+            .attr('r', selectionState.radius);
+
+        const handleWidth = Math.max(20, Math.round(selectionState.radius * 0.35));
+        const handleHeight = 10;
+        const marginFromCircle = 2;
+        const rawHandleY = selectionState.cy + selectionState.radius + marginFromCircle;
+        const handleY = Math.min(rawHandleY, imgHeight - handleHeight);
+
+        resizeHandle
+            .attr('x', selectionState.cx - (handleWidth / 2))
+            .attr('y', handleY)
+            .attr('width', handleWidth)
+            .attr('height', handleHeight);
+    }
+
+    const moveDrag = d3.drag()
         .on('start', function() {
-            console.log('Brush iniciado');
             window.brushActive = true;
+            userHasInteracted = true;
+            enableClearButton();
         })
-        .on('brush', function(event) {
-            if (event.selection) {
-                window.brushSelection = event.selection;
-                console.log('Selección brush:', event.selection);
-            }
+        .on('drag', function(event) {
+            const [mx, my] = d3.pointer(event, svgContainer.node());
+            selectionState.cx = mx;
+            selectionState.cy = my;
+            renderSelector();
+            scheduleAreaAnalysis(false);
         })
-        .on('end', function(event) {
-            console.log('Brush finalizado');
+        .on('end', function() {
             window.brushActive = false;
-
-            if (event.selection) {
-                const [[x0, y0], [x1, y1]] = event.selection;
-
-                console.log(`Selección brush (pantalla): (${x0.toFixed(1)}, ${y0.toFixed(1)}) to (${x1.toFixed(1)}, ${y1.toFixed(1)})`);
-
-                // IMPORTANTE: Los datos gaze están en espacio 800x600 (nativo)
-                // pero el brush está en espacio de pantalla (imgWidth x imgHeight)
-                // Necesitamos escalar las coordenadas del brush al espacio de datos
-                const DATA_WIDTH = 800;
-                const DATA_HEIGHT = 600;
-
-                const scaleX = DATA_WIDTH / imgWidth;
-                const scaleY = DATA_HEIGHT / imgHeight;
-
-                console.log(`Factores de escala: X=${scaleX.toFixed(3)}, Y=${scaleY.toFixed(3)} (pantalla ${imgWidth}x${imgHeight} -> datos ${DATA_WIDTH}x${DATA_HEIGHT})`);
-
-                // Convertir coordenadas de pantalla a espacio de datos
-                // IMPORTANTE: Tanto Gaze como Fixations invierten Y en visualización (líneas 442 y 504)
-                // Por lo tanto, el brush debe invertir Y para AMBOS tipos de datos
-
-                // Ambos tipos invierten Y porque la visualización lo hace
-                const areaY = Math.round((DATA_HEIGHT - (y1 * scaleY)));
-                const areaHeight = Math.round((y1 - y0) * scaleY);
-
-                console.log(`Modo ${currentDataType}: Invirtiendo Y - y0_pantalla=${y0.toFixed(1)}, y1_pantalla=${y1.toFixed(1)} -> y_datos=${areaY}`);
-
-                const area = {
-                    x: Math.round(x0 * scaleX),
-                    y: areaY,
-                    width: Math.round((x1 - x0) * scaleX),
-                    height: areaHeight
-                };
-
-                console.log(`Área seleccionada (espacio datos): ${area.width}x${area.height}px en (${area.x}, ${area.y})`);
-
-                // Validar que el área no sea demasiado pequeña (en espacio de datos)
-                if (area.width < 40 || area.height < 40) {
-                    console.log('Área seleccionada muy pequeña (mínimo 40x40px en espacio de datos)');
-                    return;
-                }
-
-                console.log(`✅ Área para análisis: ${area.width}x${area.height}px en (${area.x}, ${area.y})`);
-
-                // Llamar función para generar glyph del área seleccionada
-                analyzeSelectedArea(area);
-            } else {
-                console.log('Selección cancelada');
-            }
+            scheduleAreaAnalysis(true);
         });
 
-    // Aplicar el brush al SVG
-    const brushGroup = svgContainer.append('g')
-        .attr('class', 'brush')
-        .call(brush);
+    const resizeDrag = d3.drag()
+        .on('start', function() {
+            window.brushActive = true;
+            userHasInteracted = true;
+            enableClearButton();
+        })
+        .on('drag', function(event) {
+            const [mx, my] = d3.pointer(event, svgContainer.node());
+            const dx = mx - selectionState.cx;
+            const dy = my - selectionState.cy;
+            selectionState.radius = Math.sqrt((dx * dx) + (dy * dy));
+            renderSelector();
+            scheduleAreaAnalysis(false);
+        })
+        .on('end', function() {
+            window.brushActive = false;
+            scheduleAreaAnalysis(true);
+        });
 
-    // Personalizar el estilo del brush
-    brushGroup.selectAll('.overlay')
-        .style('fill-opacity', 0.5);
+    selectionHitArea.call(moveDrag);
+    resizeHandle.call(resizeDrag);
 
-    brushGroup.selectAll('.selection')
-        .style('stroke', '#ff6b35')
-        .style('stroke-width', '2px')
-        .style('fill', 'rgba(255, 107, 53, 0.1)')
-        .style('stroke-dasharray', '5,5');
+    renderSelector();
 
-    // Agregar botón para limpiar selección directamente al SVG
-    /*const btnClear = document.createElement('button');
-    btnClear.id = 'clearBrushBtn';
-    btnClear.innerHTML = 'Clear';
-    btnClear.className = 'btn btn-xs';*/
-    /*btnClear.style.cssText = `
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        z-index: 20;
-        background: #ff6b35;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-    `;*/
     const btnClear = document.getElementById('clearBrushBtn');
-    btnClear.classList.remove('btn-disabled');
-    btnClear.addEventListener('click', () => {
-        // Limpiar la selección del brush D3
-        brush.clear(brushGroup);
-        console.log('Selección limpiada');
+    if (btnClear) {
+        btnClear.onclick = () => {
+            console.log('Limpiando selector circular');
 
-        // Remover el tooltip del glyph si está visible
-        d3.select('#glyphTooltip').remove();
-        console.log('Tooltip del glyph removido');
+            if (circleSelectionDebounceTimer) {
+                clearTimeout(circleSelectionDebounceTimer);
+                circleSelectionDebounceTimer = null;
+            }
 
-        // Reset del área analizada y datos
-        currentAnalyzedArea = null;
-        currentAreaData = null;
-        console.log('Área analizada reseteada');
+            window.brushSelection = null;
+            currentAnalyzedArea = null;
+            currentAreaData = null;
+            d3.select('#glyphTooltip').remove();
 
-        // Limpiar puntos y overlays del scarf plot
-        clearOverlayPoints();
-        removeBoundingBoxOverlay();
-        removeParticipantColumnHighlight();
-        removeScarfSegmentHighlight();
-        currentScarfSegment = null; // Resetear segmento del scarf
-        console.log('Selección del scarf plot limpiada');
+            clearOverlayPoints();
+            removeBoundingBoxOverlay();
+            removeParticipantColumnHighlight();
+            removeScarfSegmentHighlight();
+            currentScarfSegment = null;
 
-        // Desmarcar todos los checkboxes de overlay
-        const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
-        overlayCheckboxes.forEach(checkbox => {
-            checkbox.checked = false;
-        });
+            const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
+            overlayCheckboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            currentOverlayTypes = [];
+            updateOverlay();
 
-        // Limpiar overlays y restaurar opacidad
-        currentOverlayTypes = [];
-        updateOverlay();
-        console.log('Overlay checkboxes desmarcados');
+            userHasInteracted = false;
+            selectionState.cx = imgWidth / 2;
+            selectionState.cy = imgHeight / 2;
+            selectionState.radius = defaultRadius;
+            renderSelector();
 
-        // Re-deshabilitar el botón Clear
-        btnClear.classList.add('btn-disabled');
-        console.log(' Brush, tooltip, scarf plot y estado limpiados completamente');
-    });
+            btnClear.classList.add('btn-disabled');
+            console.log('Selector circular, tooltip y estado limpiados');
+        };
+    }
 
-    // img.parentNode.appendChild(btnClear);
-    document.getElementById('img-view-controls').append(btnClear);
-
-    console.log(' Brush D3 creado exitosamente');
+    const controlsContainer = document.getElementById('img-view-controls');
+    if (controlsContainer && btnClear) {
+        controlsContainer.append(btnClear);
+    }
+    console.log('Selector circular creado');
 }
 
 // Clase RadialGlyph (adaptada para tooltip)
@@ -2122,11 +2220,41 @@ class RadialGlyph {
     }
 }
 
+function buildAreaRequestPayload(area) {
+    const safeArea = area || {};
+    const x = Number.isFinite(safeArea.x) ? safeArea.x : 0;
+    const y = Number.isFinite(safeArea.y) ? safeArea.y : 0;
+    const width = Number.isFinite(safeArea.width) ? safeArea.width : 50;
+    const height = Number.isFinite(safeArea.height) ? safeArea.height : 50;
+
+    const payload = {
+        x: x,
+        y: y,
+        width: width,
+        height: height
+    };
+
+    if (safeArea.shape === 'circle') {
+        const fallbackCenterX = Math.round(x + (width / 2));
+        const fallbackCenterY = Math.round(y + (height / 2));
+        const fallbackRadius = Math.max(1, Math.round(Math.min(width, height) / 2));
+        payload.shape = 'circle';
+        payload.center_x = Number.isFinite(safeArea.center_x) ? safeArea.center_x : fallbackCenterX;
+        payload.center_y = Number.isFinite(safeArea.center_y) ? safeArea.center_y : fallbackCenterY;
+        payload.radius = Number.isFinite(safeArea.radius) ? safeArea.radius : fallbackRadius;
+    } else {
+        payload.shape = 'rectangle';
+    }
+
+    return payload;
+}
+
 function analyzeSelectedArea(area) {
-    console.log('Analizando área seleccionada:', area);
+    const requestPayload = buildAreaRequestPayload(area);
+    console.log('Analizando selección:', requestPayload);
 
     // Guardar el área actual para reutilizarla cuando cambie el tipo de datos
-    currentAnalyzedArea = area;
+    currentAnalyzedArea = requestPayload;
 
     const currentImage = selectedImg;
     if (!currentImage) {
@@ -2148,21 +2276,24 @@ function analyzeSelectedArea(area) {
         console.log(`Filtering glyph by participant: ${selectedPart}`);
     }
 
+    // Identificador para ignorar respuestas viejas cuando hay cambios dinámicos
+    const requestId = ++areaAnalysisRequestCounter;
+
     // Llamar endpoint para obtener datos del área
     fetch(apiUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height
-        })
+        body: JSON.stringify(requestPayload)
     })
     .then(response => response.json())
     .then(data => {
+        if (requestId !== areaAnalysisRequestCounter) {
+            console.log(`Ignorando respuesta vieja de selección (requestId=${requestId})`);
+            return;
+        }
+
         console.log('Datos del área:', data);
         currentAreaData = data; // Guardar los datos
 
@@ -2174,7 +2305,7 @@ function analyzeSelectedArea(area) {
         console.log('Gaze points in overlay:', currentGazePoints.length);
         console.log('Fixation points in overlay:', currentFixationPoints.length);
 
-        showGlyphTooltip(area, data);
+        showGlyphTooltip(requestPayload, data);
     })
     .catch(error => {
         console.error('Error analyzing area:', error);
@@ -5556,10 +5687,16 @@ function refetchAreaDataWithNewType(newDataType) {
 
     // Si hay área seleccionada, refetch el área
     if (currentAnalyzedArea) {
+        const requestPayload = buildAreaRequestPayload(currentAnalyzedArea);
+
         // Construir URL con parámetro
         const apiUrl = `/api/analyze-area/${selectedImg}?data_type=${newDataType}`;
         console.log(`URL de fetch: ${apiUrl}`);
-        console.log(`Área actual: x=${currentAnalyzedArea.x}, y=${currentAnalyzedArea.y}, width=${currentAnalyzedArea.width}, height=${currentAnalyzedArea.height}`);
+        if (requestPayload.shape === 'circle') {
+            console.log(`Selección circular actual: cx=${requestPayload.center_x}, cy=${requestPayload.center_y}, r=${requestPayload.radius}`);
+        } else {
+            console.log(`Área actual: x=${requestPayload.x}, y=${requestPayload.y}, width=${requestPayload.width}, height=${requestPayload.height}`);
+        }
 
         // Hacer fetch con el nuevo tipo de datos
         fetch(apiUrl, {
@@ -5567,12 +5704,7 @@ function refetchAreaDataWithNewType(newDataType) {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                x: currentAnalyzedArea.x,
-                y: currentAnalyzedArea.y,
-                width: currentAnalyzedArea.width,
-                height: currentAnalyzedArea.height
-            })
+            body: JSON.stringify(requestPayload)
         })
         .then(response => {
             console.log(`Response status: ${response.status}`);
