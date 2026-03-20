@@ -6,6 +6,7 @@ var selectedImgV3 = null;
 var selectedPartV3 = null;
 window.selectedClass = null;
 var currentImageMode = 'original'; // 'original' o 'segmentation'
+var currentImageBlendPercent = 0; // 0 = original, 100 = segmentation
 var currentImageOriginalPath = null;
 var currentImageSegmentationPath = null;
 var globalData = data;
@@ -19,7 +20,7 @@ var classColorMap = {}; // Mapeo de clase → color RGB para resaltar en segment
 var currentAnalyzedArea = null;
 var currentAreaData = null;
 var currentGlyph = null;
-var currentDataType = 'gaze'; // 'fixations' o 'gaze'
+var currentDataType = 'fixations'; // 'fixations' o 'gaze'
 var currentDatasetSelect = 'main_class'; // 'main_class' o 'grupo'
 var currentHeatmapMode = 'attention'; // 'attention' o 'time'
 var currentScarfSegment = null; // Segmento del scarf plot seleccionado (incluye color)
@@ -38,6 +39,11 @@ var areaAnalysisRequestCounter = 0; // Evitar aplicar respuestas viejas
 var areaAnalysisAbortController = null; // Cancelar request anterior en drag
 var lastAreaAnalysisSignature = null; // Evitar requests idénticos consecutivos
 const OUTSIDE_DIM_OPACITY = 0.8; // Equivale al efecto anterior de overlays (img opacity 0.2)
+const SCARF_TIMELINE_DURATION_MS = 15000;
+const SCARF_SEGMENT_MATCH_TOLERANCE_MS = 60;
+const SCARF_AREA_DIM_OPACITY = 0.12;
+const SCARF_SEGMENT_DIM_OPACITY = 0.12;
+const SCARF_SEGMENT_HIGHLIGHT_STROKE = '#000000';
 
 // Función para obtener la ruta de segmentación según el dataset seleccionado
 function getSegmentationPath(imageId, datasetSelect) {
@@ -65,6 +71,12 @@ function getSegmentationPath(imageId, datasetSelect) {
     }
 
     return `/static/images/images/${folder}/${imageId}.${extension}`;
+}
+
+function setClearButtonEnabled(enabled) {
+    const btnClear = document.getElementById('clearBrushBtn');
+    if (!btnClear) return;
+    btnClear.classList.toggle('btn-disabled', !enabled);
 }
 
 // Funciones de visualización de puntos
@@ -105,6 +117,105 @@ function alignOverlayWithImage() {
     console.log(`Image display size: ${displayWidth}x${displayHeight}`);
     console.log(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
     console.log(`Scale factor: ${displayWidth / dataSpaceWidth}`);
+}
+
+function getSegmentationLayerImage() {
+    return document.getElementById('sel-img-view-seg');
+}
+
+function setImageBlendPercentage(percent) {
+    const imgView = document.getElementById('sel-img-view');
+    const segView = getSegmentationLayerImage();
+    const imageWrapper = document.getElementById('component-1');
+    const slider = document.getElementById('img-compare-slider');
+    const valueLabel = document.getElementById('img-compare-value');
+    const divider = document.getElementById('img-compare-divider');
+
+    const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+    currentImageBlendPercent = safePercent;
+
+    if (slider && Number(slider.value) !== safePercent) {
+        slider.value = String(safePercent);
+    }
+    if (valueLabel) {
+        valueLabel.textContent = `${Math.round(safePercent)}%`;
+    }
+
+    if (imgView) {
+        // Mostrar ORIGINAL solo en la parte izquierda complementaria
+        const rightInset = Math.max(0, Math.min(100, safePercent));
+        imgView.style.clipPath = `inset(0 ${rightInset}% 0 0)`;
+        imgView.style.webkitClipPath = `inset(0 ${rightInset}% 0 0)`;
+    }
+
+    if (segView) {
+        // Mostrar SEGMENTACIÓN solo en la parte derecha
+        const leftInset = Math.max(0, Math.min(100, 100 - safePercent));
+        segView.style.clipPath = `inset(0 0 0 ${leftInset}%)`;
+        segView.style.webkitClipPath = `inset(0 0 0 ${leftInset}%)`;
+        const shouldDimForOverlay = currentOverlayTypes && currentOverlayTypes.length > 0 && !window.brushSelection;
+        segView.style.opacity = safePercent <= 0 ? '0' : (shouldDimForOverlay ? '0.2' : '1');
+    }
+
+    if (imgView) {
+        const shouldDimForOverlay = currentOverlayTypes && currentOverlayTypes.length > 0 && !window.brushSelection;
+        imgView.style.opacity = shouldDimForOverlay ? '0.2' : '1';
+    }
+
+    if (safePercent <= 0) {
+        currentImageMode = 'original';
+    } else if (safePercent >= 100) {
+        currentImageMode = 'segmentation';
+    } else {
+        currentImageMode = 'blend';
+    }
+
+    if (divider && imgView && imageWrapper) {
+        const imgRect = imgView.getBoundingClientRect();
+        const wrapperRect = imageWrapper.getBoundingClientRect();
+
+        if (safePercent <= 0 || safePercent >= 100 || imgRect.width === 0 || imgRect.height === 0) {
+            divider.style.display = 'none';
+        } else {
+            const splitRatio = (100 - safePercent) / 100; // Segmentación visible desde la derecha
+            const splitX = (imgRect.left - wrapperRect.left) + (imgRect.width * splitRatio);
+            divider.style.display = 'block';
+            divider.style.left = `${splitX}px`;
+            divider.style.top = `${imgRect.top - wrapperRect.top}px`;
+            divider.style.height = `${imgRect.height}px`;
+        }
+    }
+}
+
+function syncSegmentationLayerImage() {
+    const segView = getSegmentationLayerImage();
+    if (!segView) return;
+
+    if (!currentImageSegmentationPath) {
+        segView.src = '';
+        return;
+    }
+
+    if (window.selectedClass) {
+        createSegmentationCanvas();
+        applySegmentationFilter(window.selectedClass);
+    } else {
+        resetSegmentationView();
+    }
+}
+
+function initializeImageBlendSlider() {
+    const slider = document.getElementById('img-compare-slider');
+    if (!slider) {
+        return;
+    }
+
+    slider.addEventListener('input', function() {
+        setImageBlendPercentage(this.value);
+    });
+
+    setImageBlendPercentage(slider.value);
+    window.addEventListener('resize', () => setImageBlendPercentage(currentImageBlendPercent));
 }
 
 function clearOverlayPoints() {
@@ -465,6 +576,19 @@ function visualizeGazePointsOverlay() {
     console.log(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
     console.log(`Total gaze points to render: ${currentGazePoints.length}`);
 
+    // Si hay un segmento de scarf plot seleccionado, pintar los puntos con su color
+    let selectedSegmentPointColor = null;
+    if (currentScarfSegment && currentScarfSegment.color) {
+        const parsedColor = d3.color(currentScarfSegment.color);
+        if (parsedColor) {
+            parsedColor.opacity = 0.7;
+            selectedSegmentPointColor = parsedColor.formatRgb();
+        } else {
+            selectedSegmentPointColor = currentScarfSegment.color;
+        }
+        console.log(`Using scarf segment color for gaze points: ${selectedSegmentPointColor}`);
+    }
+
     const fragment = document.createDocumentFragment();
 
     currentGazePoints.forEach((point, index) => {
@@ -485,7 +609,12 @@ function visualizeGazePointsOverlay() {
         gazeElement.style.left = scaledX + 'px';
         gazeElement.style.top = scaledY + 'px';
 
-        // Los gaze points siempre mantienen el color celeste (definido en CSS)
+        // Aplicar color del segmento seleccionado (si existe)
+        if (selectedSegmentPointColor) {
+            gazeElement.style.background = selectedSegmentPointColor;
+            gazeElement.style.border = '1px solid #000';
+            gazeElement.style.boxSizing = 'border-box';
+        }
 
         fragment.appendChild(gazeElement);
     });
@@ -557,9 +686,11 @@ function visualizeFixationPointsOverlay() {
 
         // Usar el color del segmento del scarf plot si está disponible
         if (currentScarfSegment && currentScarfSegment.color) {
-            fixationElement.style.borderColor = currentScarfSegment.color;
+            fixationElement.style.background = currentScarfSegment.color;
+            fixationElement.style.borderColor = '#000';
             fixationElement.style.borderWidth = '2px';
-            fixationElement.style.opacity = '0.9';
+            fixationElement.style.boxSizing = 'border-box';
+            fixationElement.style.opacity = '0.95';
         }
 
         fragment.appendChild(fixationElement);
@@ -587,15 +718,20 @@ function updateOverlay() {
     console.log('updateOverlay called with types:', currentOverlayTypes, 'data type:', currentDataType, 'participant:', selectedPart);
     clearOverlayPoints();
     const imgView = document.getElementById('sel-img-view');
+    const segView = getSegmentationLayerImage();
 
     // Si no hay overlays seleccionados, no aplicar overlays
     if (!currentOverlayTypes || currentOverlayTypes.length === 0) {
         if (imgView) imgView.style.opacity = '1';
+        if (segView) segView.style.opacity = currentImageBlendPercent <= 0 ? '0' : '1';
         return;
     }
 
     if (imgView) {
         imgView.style.opacity = window.brushSelection ? '1' : '0.2';
+    }
+    if (segView) {
+        segView.style.opacity = currentImageBlendPercent <= 0 ? '0' : (window.brushSelection ? '1' : '0.2');
     }
 
     const gazeToVisualize = filterPointsByParticipant(allGazePointsWithParticipant, selectedPart);
@@ -756,7 +892,8 @@ function hexToRgb(hex) {
 }
 
 function applySegmentationFilter(selectedClass) {
-    const imgView = document.getElementById('sel-img-view');
+    const imgView = document.getElementById('sel-img-view-seg');
+    if (!imgView) return;
 
     if (!segmentationCanvas || !originalSegmentationImage) {
         createSegmentationCanvas();
@@ -826,7 +963,8 @@ function applySegmentationFilter(selectedClass) {
 
 
 function resetSegmentationView() {
-    const imgView = document.getElementById('sel-img-view');
+    const imgView = document.getElementById('sel-img-view-seg');
+    if (!imgView) return;
     if (currentImageSegmentationPath) {
         imgView.src = currentImageSegmentationPath;
     }
@@ -911,7 +1049,7 @@ function createBrushSelection(imageWrapper, img) {
         .style('display', 'none');
 
     const minRadiusDisplay = Math.max(4, Math.min(24, (Math.min(imgWidth, imgHeight) / 2) - 2));
-    const defaultRadius = Math.max(minRadiusDisplay, Math.min(imgWidth, imgHeight) * 0.22);
+    const defaultRadius = Math.max(minRadiusDisplay, Math.min(imgWidth, imgHeight) * 0.15);
 
     const selectionState = {
         cx: imgWidth / 2,
@@ -1007,8 +1145,7 @@ function createBrushSelection(imageWrapper, img) {
     }
 
     function enableClearButton() {
-        const btnClear = document.getElementById('clearBrushBtn');
-        if (btnClear) btnClear.classList.remove('btn-disabled');
+        setClearButtonEnabled(true);
     }
 
     const selectionHitArea = svgContainer.append('circle')
@@ -1020,7 +1157,7 @@ function createBrushSelection(imageWrapper, img) {
         .attr('class', 'circle-selection-shape')
         .style('fill', 'transparent')
         .style('stroke', '#c85f78')
-        .style('stroke-width', '3px')
+        .style('stroke-width', '0.2px')
         .style('pointer-events', 'none');
 
     const resizeHandle = svgContainer.append('rect')
@@ -1124,7 +1261,49 @@ function createBrushSelection(imageWrapper, img) {
     selectionHitArea.call(moveDrag);
     resizeHandle.call(resizeDrag);
 
-    // Activar selector recién con el primer clic sobre la imagen
+    function clearCircleSelection() {
+        console.log('Limpiando selector circular');
+
+        if (circleSelectionDebounceTimer) {
+            clearTimeout(circleSelectionDebounceTimer);
+            circleSelectionDebounceTimer = null;
+        }
+        if (areaAnalysisAbortController) {
+            areaAnalysisAbortController.abort();
+            areaAnalysisAbortController = null;
+        }
+
+        window.brushSelection = null;
+        currentAnalyzedArea = null;
+        currentAreaData = null;
+        lastAreaAnalysisSignature = null;
+        d3.select('#glyphTooltip').remove();
+        currentGlyph = null;
+
+        clearOverlayPoints();
+        removeBoundingBoxOverlay();
+        removeParticipantColumnHighlight();
+        removeScarfSegmentHighlight();
+        currentScarfSegment = null;
+
+        const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
+        overlayCheckboxes.forEach(checkbox => {
+            checkbox.checked = false;
+        });
+        currentOverlayTypes = [];
+        updateOverlay();
+
+        userHasInteracted = false;
+        selectionState.cx = imgWidth / 2;
+        selectionState.cy = imgHeight / 2;
+        selectionState.radius = defaultRadius;
+        renderSelector();
+
+        setClearButtonEnabled(false);
+
+        console.log('Selector circular, tooltip y estado limpiados');
+    }
+
     svgContainer.on('click.circleSelectionActivate', function(event) {
         if (window.brushActive || userHasInteracted) return;
         const [mx, my] = d3.pointer(event, svgContainer.node());
@@ -1139,51 +1318,23 @@ function createBrushSelection(imageWrapper, img) {
         scheduleAreaAnalysis(true);
     });
 
+    svgContainer.on('dblclick.circleSelectionClear', function(event) {
+        if (!userHasInteracted) return;
+        event.preventDefault();
+        clearCircleSelection();
+    });
+
+    svgContainer.on('contextmenu.circleSelectionClear', function(event) {
+        if (!userHasInteracted) return;
+        event.preventDefault();
+        clearCircleSelection();
+    });
+
     renderSelector();
 
     const btnClear = document.getElementById('clearBrushBtn');
     if (btnClear) {
-        btnClear.onclick = () => {
-            console.log('Limpiando selector circular');
-
-            if (circleSelectionDebounceTimer) {
-                clearTimeout(circleSelectionDebounceTimer);
-                circleSelectionDebounceTimer = null;
-            }
-            if (areaAnalysisAbortController) {
-                areaAnalysisAbortController.abort();
-                areaAnalysisAbortController = null;
-            }
-
-            window.brushSelection = null;
-            currentAnalyzedArea = null;
-            currentAreaData = null;
-            lastAreaAnalysisSignature = null;
-            d3.select('#glyphTooltip').remove();
-            currentGlyph = null;
-
-            clearOverlayPoints();
-            removeBoundingBoxOverlay();
-            removeParticipantColumnHighlight();
-            removeScarfSegmentHighlight();
-            currentScarfSegment = null;
-
-            const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
-            overlayCheckboxes.forEach(checkbox => {
-                checkbox.checked = false;
-            });
-            currentOverlayTypes = [];
-            updateOverlay();
-
-            userHasInteracted = false;
-            selectionState.cx = imgWidth / 2;
-            selectionState.cy = imgHeight / 2;
-            selectionState.radius = defaultRadius;
-            renderSelector();
-
-            btnClear.classList.add('btn-disabled');
-            console.log('Selector circular, tooltip y estado limpiados');
-        };
+        btnClear.onclick = clearCircleSelection;
     }
 
     const controlsContainer = document.getElementById('img-view-controls');
@@ -1248,7 +1399,8 @@ class RadialGlyph {
             .append("svg")
             .attr("width", this.config.width)
             .attr("height", this.config.height)
-            .style("background", "transparent");
+            .style("background", "transparent")
+            .style("pointer-events", "none");
 
         this.centerGroup = this.svg.append("g")
             .attr("class", "center-group")
@@ -2056,6 +2208,7 @@ class RadialGlyph {
             .attr("stroke", "none")
             .attr("stroke-width", 0)
             .attr("opacity", 0.85)
+            .style("pointer-events", "visiblePainted")
             .style("cursor", "pointer")
             .on("mouseover", (event, d) => {
                 const fixationsList = details[d.timeIdx] || [];
@@ -2333,6 +2486,7 @@ function analyzeSelectedArea(area) {
 
     // Guardar el área actual para reutilizarla cuando cambie el tipo de datos
     currentAnalyzedArea = requestPayload;
+    updateScarfBoundingOverlayDimMask();
 
     const currentImage = selectedImg;
     if (!currentImage) {
@@ -2394,6 +2548,7 @@ function analyzeSelectedArea(area) {
         console.log('Gaze points in overlay:', currentGazePoints.length);
         console.log('Fixation points in overlay:', currentFixationPoints.length);
 
+        highlightScarfSegmentsForArea(data);
         showGlyphTooltip(requestPayload, data);
     })
     .catch(error => {
@@ -2495,7 +2650,8 @@ function showGlyphTooltip(area, data) {
         .style('height', '100%')
         .style('display', 'flex')
         .style('align-items', 'center')
-        .style('justify-content', 'center');
+        .style('justify-content', 'center')
+        .style('pointer-events', 'none');
 
     // ring1 queda dentro del círculo rojo y ring2 queda fuera para respetar la jerarquía visual
     const margin = Math.max(12, Math.round(glyphSize * 0.08));
@@ -2516,69 +2672,29 @@ function showGlyphTooltip(area, data) {
 
 function switchImageView(mode) {
     const imgView = document.getElementById('sel-img-view');
-    const btnOriginal = document.getElementById('btn-original');
-    const btnSegmentation = document.getElementById('btn-segmentation');
     const imageWrapper = document.getElementById('component-1');
+    const hasImage = currentImageOriginalPath && currentImageSegmentationPath;
 
-    currentImageMode = mode;
-
-    if (mode === 'original' && currentImageOriginalPath) {
-        // Remover SVG de contorno si existe
-        d3.select(imageWrapper).select('svg.contour-svg').remove();
-
-        // Remover handler de contorno para evitar que se vuelva a dibujar
-        imgView.onload = null;
-
-        imgView.src = currentImageOriginalPath;
-        btnOriginal.classList.add('btn-primary');
-        btnOriginal.classList.remove('btn-outline');
-        btnSegmentation.classList.remove('btn-primary');
-        btnSegmentation.classList.add('btn-outline');
-
-        imgView.onload = function() {
-            alignOverlayWithImage();
-            createBrushSelection(imageWrapper, imgView);
-            updateOverlay(); // Actualizar overlay para aplicar opacidad según estado
-        };
-
-        // Recrear brush cuando se carga la imagen
-        if (imgView.complete) {
-            alignOverlayWithImage();
-            createBrushSelection(imageWrapper, imgView);
-            updateOverlay(); // Actualizar overlay para aplicar opacidad según estado
-        }
-    } else if (mode === 'segmentation' && currentImageSegmentationPath) {
-        // Remover SVG de contorno si existe
-        d3.select(imageWrapper).select('svg.contour-svg').remove();
-
-        // Remover handler de contorno para evitar que se vuelva a dibujar
-        imgView.onload = null;
-
-        // Si hay una clase seleccionada, aplicar filtro
-        if (window.selectedClass) {
-            createSegmentationCanvas();
-            applySegmentationFilter(window.selectedClass);
-        } else {
-            imgView.src = currentImageSegmentationPath;
-        }
-        btnOriginal.classList.remove('btn-primary');
-        btnOriginal.classList.add('btn-outline');
-        btnSegmentation.classList.add('btn-primary');
-        btnSegmentation.classList.remove('btn-outline');
-
-        imgView.onload = function() {
-            alignOverlayWithImage();
-            createBrushSelection(imageWrapper, imgView);
-            updateOverlay(); // Actualizar overlay para aplicar opacidad según estado
-        };
-
-        // Recrear brush cuando se carga la imagen
-        if (imgView.complete) {
-            alignOverlayWithImage();
-            createBrushSelection(imageWrapper, imgView);
-            updateOverlay(); // Actualizar overlay para aplicar opacidad según estado
-        }
+    if (!imgView || !imageWrapper || !hasImage) {
+        return;
     }
+
+    if (mode === 'original') {
+        setImageBlendPercentage(0);
+    } else if (mode === 'segmentation') {
+        syncSegmentationLayerImage();
+        setImageBlendPercentage(100);
+    } else {
+        setImageBlendPercentage(currentImageBlendPercent);
+    }
+
+    // Remover SVG de contorno si existe
+    d3.select(imageWrapper).select('svg.contour-svg').remove();
+
+    // Recrear brush para mantener consistencia de interacción
+    alignOverlayWithImage();
+    createBrushSelection(imageWrapper, imgView);
+    updateOverlay(); // Actualizar overlay para aplicar opacidad según estado
 }
 
 
@@ -2599,6 +2715,8 @@ function updateTabs() {
 document.querySelectorAll('.tabs input[name="tabs-nav"]').forEach(input => {
     input.addEventListener('change', updateTabs);
 });
+
+initializeImageBlendSlider();
 
 
 function populateSelect(selectId, values, labelPrefix, all=true) {
@@ -4607,16 +4725,12 @@ function visualizeTSNEProjection(data) {
         svg.selectAll('.brush').call(brush.move, null);
     };
 
-    // Store reference to display selected images
     window.displayTSNESelectedImages = displaySelectedImagesInControls;
 }
 
-// Global variable to store selection
 window.selectedClass = null;
 
-// MODIFICACIÓN: Función global para actualizar highlights en heatmap, scarf plot y segmentación
 function updateHighlightsGlobal() {
-    // 1. Actualizar heatmap
     const rowSelectors = document.querySelectorAll('.row-selector');
     rowSelectors.forEach(element => {
         const className = element.__data__;
@@ -4627,7 +4741,6 @@ function updateHighlightsGlobal() {
         }
     });
 
-    // 2. Actualizar etiquetas Y del heatmap
     const yAxisLabels = document.querySelectorAll('.y-axis-label');
     yAxisLabels.forEach(element => {
         const className = element.__data__;
@@ -4638,52 +4751,22 @@ function updateHighlightsGlobal() {
         }
     });
 
-    // 3. Actualizar scarf plot
     if (window.selectedClass != null) {
-        // Opacificar todos los segmentos
         d3.selectAll('.scarf-segment')
             .attr('opacity', d => 0.3);
-        // Resaltar solo la clase seleccionada
         d3.selectAll('.scarf-segment-' + window.selectedClass)
             .attr('opacity', d => 1);
 
-        // // Cambiar automáticamente a segmentation cuando se selecciona una clase
-        // if (currentImageMode !== 'segmentation' && currentImageSegmentationPath) {
-        //     switchImageView('segmentation');
-        // } else if (currentImageMode === 'segmentation') {
-        //     // Si ya estamos en segmentation, aplicar el filtro
-        //     applySegmentationFilter(window.selectedClass);
-        // }
-
-        //if (window.selectedClass != null) {
-            // Si no estamos en modo segmentación, cambiamos
-        if (currentImageMode !== 'segmentation') {
-            switchImageView('segmentation');
-            
-            // --- CORRECCIÓN 2: Esperar a que la imagen cargue ---
-            // Asignamos un evento one-time para aplicar el filtro apenas cargue
-            const img = document.getElementById('sel-img-view');
-            
-            // Pequeño hack: esperamos un poco o usamos el evento de carga global
-            // Lo ideal es llamar al filtro dentro de la función que carga la imagen
-            setTimeout(() => {
-                applySegmentationFilter(window.selectedClass); 
-            }, 100); // Espera breve para dar tiempo al cambio de src
-            
-        } else {
-            // Si ya estamos en segmentación, aplicamos directo
-            applySegmentationFilter(window.selectedClass);
+        if (currentImageBlendPercent <= 0) {
+            setImageBlendPercentage(50);
         }
+        syncSegmentationLayerImage();
 
     } else {
-        // Restablecer opacidad completa en scarf plot
         d3.selectAll('.scarf-segment')
             .attr('opacity', d => 1);
 
-        // Resetear la vista de segmentación cuando se deselecciona una clase
-        if (currentImageMode === 'segmentation') {
-            resetSegmentationView();
-        }
+        syncSegmentationLayerImage();
     }
 }
 
@@ -5167,11 +5250,36 @@ function loadImageInControls2(imageName) {
     console.log(`Imagen cargada: ${imageName} en controls2 con ancho máximo: ${controls2Width * 0.95}px`);
 }
 
-// ===== FUNCIONES PARA INTERACCIÓN CON SCARF PLOT =====
+function updateScarfBoundingOverlayDimMask(overlayElement = null) {
+    const overlay = overlayElement || document.getElementById('scarf-bounding-overlay');
+    const img = document.getElementById('sel-img-view');
 
-// Crear bounding box overlay sobre la imagen
+    if (!overlay || !img) return;
+
+    overlay.style.background = '';
+    overlay.style.backgroundColor = `rgba(255, 255, 255, ${OUTSIDE_DIM_OPACITY})`;
+
+    if (
+        currentAnalyzedArea &&
+        currentAnalyzedArea.shape === 'circle' &&
+        Number.isFinite(currentAnalyzedArea.center_x) &&
+        Number.isFinite(currentAnalyzedArea.center_y) &&
+        Number.isFinite(currentAnalyzedArea.radius)
+    ) {
+        const imgRect = img.getBoundingClientRect();
+        const DATA_WIDTH = 800;
+        const DATA_HEIGHT = 600;
+        const scaleX = imgRect.width / DATA_WIDTH;
+        const scaleY = imgRect.height / DATA_HEIGHT;
+        const circleCx = currentAnalyzedArea.center_x * scaleX;
+        const circleCy = (DATA_HEIGHT - currentAnalyzedArea.center_y) * scaleY;
+        const circleRadius = Math.max(1, currentAnalyzedArea.radius * ((scaleX + scaleY) / 2));
+
+        overlay.style.background = `radial-gradient(circle at ${circleCx}px ${circleCy}px, rgba(255,255,255,0) ${circleRadius}px, rgba(255,255,255,${OUTSIDE_DIM_OPACITY}) ${circleRadius + 1}px)`;
+    }
+}
+
 function createBoundingBoxOverlay(boundingBox) {
-    // Remover overlay anterior si existe
     const existingOverlay = document.getElementById('scarf-bounding-overlay');
     const existingBorder = document.getElementById('scarf-bounding-border');
     if (existingOverlay) existingOverlay.remove();
@@ -5189,7 +5297,7 @@ function createBoundingBoxOverlay(boundingBox) {
     const imgLeft = (component1Rect.width - imgRect.width) / 2;
     const imgTop = (component1Rect.height - imgRect.height) / 2;
 
-    // Crear overlay con opacidad (todo excepto el bounding box)
+    // Crear overlay con opacidad en toda la imagen (incluyendo el área del bounding box)
     const overlay = document.createElement('div');
     overlay.id = 'scarf-bounding-overlay';
     overlay.style.position = 'absolute';
@@ -5197,21 +5305,15 @@ function createBoundingBoxOverlay(boundingBox) {
     overlay.style.left = imgLeft + 'px';
     overlay.style.width = imgRect.width + 'px';
     overlay.style.height = imgRect.height + 'px';
-    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)'; // 70% opacidad
     overlay.style.pointerEvents = 'none';
     overlay.style.zIndex = '99';
 
-    // Crear recorte usando clip-path (mostrar solo el área del bounding box sin opacidad)
     const { x, y, width, height } = boundingBox;
-    overlay.style.clipPath = `polygon(
-        0% 0%, 0% 100%, ${x}px 100%, ${x}px ${y}px,
-        ${x + width}px ${y}px, ${x + width}px ${y + height}px,
-        ${x}px ${y + height}px, ${x}px 100%, 100% 100%, 100% 0%
-    )`;
+    updateScarfBoundingOverlayDimMask(overlay);
 
     component1.appendChild(overlay);
 
-    // Crear rectángulo de borde dorado
+    // Crear rectángulo de borde negro
     const border = document.createElement('div');
     border.id = 'scarf-bounding-border';
     border.style.position = 'absolute';
@@ -5219,15 +5321,14 @@ function createBoundingBoxOverlay(boundingBox) {
     border.style.left = (imgLeft + x) + 'px';
     border.style.width = width + 'px';
     border.style.height = height + 'px';
-    border.style.border = '2px solid #FFD700'; // Borde dorado
-    border.style.boxShadow = '0 0 10px rgba(255, 215, 0, 0.5)';
+    border.style.border = '2px solid #000000'; // Borde negro
+    border.style.boxShadow = 'none';
     border.style.pointerEvents = 'none';
     border.style.zIndex = '101';
 
     component1.appendChild(border);
 }
 
-// Remover bounding box overlay
 function removeBoundingBoxOverlay() {
     const overlay = document.getElementById('scarf-bounding-overlay');
     const border = document.getElementById('scarf-bounding-border');
@@ -5235,11 +5336,9 @@ function removeBoundingBoxOverlay() {
     if (border) border.remove();
 }
 
-// Resaltar columna de participante en el heatmap
 function highlightParticipantColumnInHeatmap(participantId) {
     console.log('Highlighting participant column:', participantId);
 
-    // Remover highlight anterior si existe
     d3.select('#heatmap-participant-highlight').remove();
 
     const heatmapContainer = document.getElementById('heatmap-plot');
@@ -5296,13 +5395,262 @@ function removeParticipantColumnHighlight() {
     d3.select('#heatmap-participant-highlight').remove();
 }
 
+function toMilliseconds(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return null;
+    }
+    return Math.abs(numeric) < 100 ? numeric * 1000 : numeric;
+}
+
+function getPointParticipantId(point) {
+    if (!point) {
+        return null;
+    }
+    const participantId = point.participante ?? point.participant;
+    if (participantId === null || participantId === undefined || participantId === '') {
+        return null;
+    }
+    return String(participantId);
+}
+
+function buildScarfTimelineDomains(dataType) {
+    const sourcePoints = dataType === 'fixations'
+        ? allFixationPointsWithParticipant
+        : allGazePointsWithParticipant;
+
+    const domains = new Map();
+
+    sourcePoints.forEach(point => {
+        const participantId = getPointParticipantId(point);
+        if (!participantId) return;
+
+        const rawTime = dataType === 'fixations'
+            ? toMilliseconds(point.start ?? point.start_time)
+            : toMilliseconds(point.time ?? point.Time ?? point.start ?? point.start_time);
+
+        if (!Number.isFinite(rawTime)) return;
+
+        if (!domains.has(participantId)) {
+            domains.set(participantId, { min: rawTime, max: rawTime });
+            return;
+        }
+
+        const domain = domains.get(participantId);
+        domain.min = Math.min(domain.min, rawTime);
+        domain.max = Math.max(domain.max, rawTime);
+    });
+
+    return domains;
+}
+
+function normalizeTimeToScarfTimeline(rawTimeMs, participantId, domainsByParticipant) {
+    if (!Number.isFinite(rawTimeMs)) {
+        return null;
+    }
+
+    const domain = domainsByParticipant.get(participantId);
+    if (!domain || !Number.isFinite(domain.min) || !Number.isFinite(domain.max) || domain.max <= domain.min) {
+        return Math.max(0, Math.min(SCARF_TIMELINE_DURATION_MS, rawTimeMs));
+    }
+
+    const normalized = ((rawTimeMs - domain.min) / (domain.max - domain.min)) * SCARF_TIMELINE_DURATION_MS;
+    return Math.max(0, Math.min(SCARF_TIMELINE_DURATION_MS, normalized));
+}
+
+function mergeIntervals(intervals, mergeGapMs = 80) {
+    if (!intervals || intervals.length <= 1) {
+        return intervals || [];
+    }
+
+    const sorted = [...intervals]
+        .map(i => ({ start: Number(i.start), end: Number(i.end) }))
+        .filter(i => Number.isFinite(i.start) && Number.isFinite(i.end))
+        .sort((a, b) => a.start - b.start);
+
+    if (sorted.length === 0) {
+        return [];
+    }
+
+    const merged = [{ start: sorted[0].start, end: sorted[0].end }];
+
+    for (let i = 1; i < sorted.length; i++) {
+        const current = sorted[i];
+        const last = merged[merged.length - 1];
+        if (current.start <= (last.end + mergeGapMs)) {
+            last.end = Math.max(last.end, current.end);
+        } else {
+            merged.push({ start: current.start, end: current.end });
+        }
+    }
+
+    return merged;
+}
+
+function buildAreaIntervalsForScarf(areaData, dataType) {
+    const areaPoints = Array.isArray(areaData?.data_for_analysis) ? areaData.data_for_analysis : [];
+    const domainsByParticipant = buildScarfTimelineDomains(dataType);
+    const intervalsByParticipant = new Map();
+
+    areaPoints.forEach(point => {
+        const participantId = getPointParticipantId(point);
+        if (!participantId) return;
+
+        let intervalStart = null;
+        let intervalEnd = null;
+
+        if (dataType === 'fixations') {
+            const rawStartMs = toMilliseconds(point.start ?? point.start_time ?? point.Time ?? point.time);
+            if (!Number.isFinite(rawStartMs)) return;
+
+            const normalizedStart = normalizeTimeToScarfTimeline(rawStartMs, participantId, domainsByParticipant);
+            if (!Number.isFinite(normalizedStart)) return;
+
+            let normalizedEnd = normalizedStart;
+            const durationMs = toMilliseconds(point.duration);
+
+            if (Number.isFinite(durationMs)) {
+                normalizedEnd = normalizedStart + Math.max(0, durationMs);
+            } else {
+                const rawEndMs = toMilliseconds(point.end ?? point.end_time);
+                if (Number.isFinite(rawEndMs)) {
+                    normalizedEnd = normalizeTimeToScarfTimeline(rawEndMs, participantId, domainsByParticipant);
+                }
+            }
+
+            intervalStart = Math.max(0, Math.min(SCARF_TIMELINE_DURATION_MS, Math.min(normalizedStart, normalizedEnd)));
+            intervalEnd = Math.max(0, Math.min(SCARF_TIMELINE_DURATION_MS, Math.max(normalizedStart, normalizedEnd)));
+        } else {
+            const rawTimeMs = toMilliseconds(point.Time ?? point.time ?? point.start ?? point.start_time);
+            if (!Number.isFinite(rawTimeMs)) return;
+
+            const normalizedTime = normalizeTimeToScarfTimeline(rawTimeMs, participantId, domainsByParticipant);
+            if (!Number.isFinite(normalizedTime)) return;
+
+            intervalStart = normalizedTime;
+            intervalEnd = normalizedTime;
+        }
+
+        if (!Number.isFinite(intervalStart) || !Number.isFinite(intervalEnd)) return;
+
+        if (!intervalsByParticipant.has(participantId)) {
+            intervalsByParticipant.set(participantId, []);
+        }
+        intervalsByParticipant.get(participantId).push({
+            start: intervalStart,
+            end: intervalEnd
+        });
+    });
+
+    intervalsByParticipant.forEach((intervals, participantId) => {
+        intervalsByParticipant.set(participantId, mergeIntervals(intervals));
+    });
+
+    return intervalsByParticipant;
+}
+
+function isSameScarfSegment(a, b) {
+    if (!a || !b) {
+        return false;
+    }
+
+    const sameParticipant = String(a.participant) === String(b.participant);
+    const startDiff = Math.abs(Number(a.start_time) - Number(b.start_time));
+    const endDiff = Math.abs(Number(a.end_time) - Number(b.end_time));
+
+    return sameParticipant && startDiff < 0.001 && endDiff < 0.001;
+}
+
+function clearScarfAreaSelectionHighlight() {
+    d3.selectAll('.scarf-segment')
+        .classed('scarf-segment-area-highlight', false)
+        .classed('scarf-segment-area-muted', false)
+        .each(function(segment) {
+            const segmentSelection = d3.select(this);
+            const keepManualHighlight = currentScarfSegment && isSameScarfSegment(segment, currentScarfSegment);
+
+            segmentSelection
+                .attr('opacity', 1)
+                .attr('stroke', keepManualHighlight ? SCARF_SEGMENT_HIGHLIGHT_STROKE : '#333')
+                .attr('stroke-width', keepManualHighlight ? 1 : 1);
+        });
+}
+
+function highlightScarfSegmentsForArea(areaData) {
+    clearScarfAreaSelectionHighlight();
+
+    const scarfSegments = d3.selectAll('.scarf-segment');
+    if (scarfSegments.empty()) {
+        return;
+    }
+
+    const effectiveDataType = (areaData && areaData.data_type) ? areaData.data_type : currentDataType;
+    const intervalsByParticipant = buildAreaIntervalsForScarf(areaData, effectiveDataType);
+    if (intervalsByParticipant.size === 0) {
+        return;
+    }
+
+    let highlightedCount = 0;
+
+    scarfSegments.each(function(segment) {
+        const segmentSelection = d3.select(this);
+        if (!segment) {
+            segmentSelection
+                .classed('scarf-segment-area-highlight', false)
+                .classed('scarf-segment-area-muted', true)
+                .attr('opacity', SCARF_AREA_DIM_OPACITY)
+                .attr('stroke', '#333')
+                .attr('stroke-width', 1);
+            return;
+        }
+
+        const participantId = String(segment.participant);
+        const participantIntervals = intervalsByParticipant.get(participantId);
+        const segmentStart = Number(segment.start_time);
+        const segmentEnd = Number(segment.end_time);
+
+        const hasValidSegmentTimes = Number.isFinite(segmentStart) && Number.isFinite(segmentEnd);
+        const start = hasValidSegmentTimes ? Math.min(segmentStart, segmentEnd) : null;
+        const end = hasValidSegmentTimes ? Math.max(segmentStart, segmentEnd) : null;
+
+        const matchesAnyInterval = Boolean(
+            participantIntervals &&
+            participantIntervals.length > 0 &&
+            hasValidSegmentTimes &&
+            participantIntervals.some(interval =>
+                end >= (interval.start - SCARF_SEGMENT_MATCH_TOLERANCE_MS) &&
+                start <= (interval.end + SCARF_SEGMENT_MATCH_TOLERANCE_MS)
+            )
+        );
+
+        if (matchesAnyInterval) {
+            highlightedCount++;
+            segmentSelection
+                .classed('scarf-segment-area-highlight', true)
+                .classed('scarf-segment-area-muted', false)
+                .attr('opacity', 1)
+                .attr('stroke', SCARF_SEGMENT_HIGHLIGHT_STROKE)
+                .attr('stroke-width', 0.5);
+        } else {
+            segmentSelection
+                .classed('scarf-segment-area-highlight', false)
+                .classed('scarf-segment-area-muted', true)
+                .attr('opacity', SCARF_AREA_DIM_OPACITY)
+                .attr('stroke', '#333')
+                .attr('stroke-width', 0.5);
+        }
+    });
+
+    console.log(`Area-driven scarf highlight: ${highlightedCount} segmentos`);
+}
+
 // Resaltar bloque seleccionado en scarf plot (opacar el resto)
 function highlightScarfSegment(segment) {
     console.log('Highlighting scarf segment:', segment);
 
     // Opacar todos los segmentos
     d3.selectAll('.scarf-segment')
-        .attr('opacity', 0.3);
+        .attr('opacity', SCARF_SEGMENT_DIM_OPACITY);
 
     // Encontrar y resaltar el segmento específico
     d3.selectAll('.scarf-segment')
@@ -5313,12 +5661,14 @@ function highlightScarfSegment(segment) {
                    d.end_time === segment.end_time;
         })
         .attr('opacity', 1)
-        .attr('stroke', '#FFD700')  // Borde dorado
-        .attr('stroke-width', 2);
+        .attr('stroke', SCARF_SEGMENT_HIGHLIGHT_STROKE)
+        .attr('stroke-width', 0.5);
 }
 
 // Remover highlight de scarf plot
 function removeScarfSegmentHighlight() {
+    clearScarfAreaSelectionHighlight();
+
     // Restaurar opacidad completa a todos los segmentos
     d3.selectAll('.scarf-segment')
         .attr('opacity', 1)
@@ -5332,6 +5682,7 @@ function showPointsForScarfSegment(segment) {
 
     // Guardar el segmento actual para usar su color
     currentScarfSegment = segment;
+    setClearButtonEnabled(true);
 
     const { start_time, end_time, participant } = segment;
 
@@ -5506,7 +5857,7 @@ function visualizeScarfPlot(data) {
         .attr('class', segment => 'scarf-segment scarf-segment-' + segment.class)
         .attr('fill', segment => segment.color || '#999999')
         .attr('stroke', '#333')
-        .attr('stroke-width', 1)
+        .attr('stroke-width', 0.5)
         .style('cursor', 'pointer')
         .on('click', function(_event, segment) {
             // Show points for this time segment
@@ -5619,8 +5970,10 @@ function visualizeScarfPlot(data) {
 
                 legendContainer.append(btnLegend);
             }
-            
-            
+
+    if (currentAnalyzedArea && currentAreaData) {
+        highlightScarfSegmentsForArea(currentAreaData);
+    }
 }
 
 
@@ -5691,36 +6044,33 @@ document.getElementById("img-select").addEventListener("change", function() {
     areaAnalysisRequestCounter += 1;
     lastAreaAnalysisSignature = null;
     const imgView = document.getElementById("sel-img-view");
+    const segView = getSegmentationLayerImage();
     const imageWrapper = document.getElementById('component-1');
     if (selectedImage !== "all") {
         currentImageOriginalPath = `/static/images/images/images/${selectedImage}.jpg`;
         currentImageSegmentationPath = getSegmentationPath(selectedImage, currentDatasetSelect);
-        currentImageMode = 'original';
-        imgView.src = currentImageOriginalPath;
 
         // Resetear canvas de segmentación para la nueva imagen
         segmentationCanvas = null;
         originalSegmentationImage = null;
-
-        // Actualizar estado de botones
-        const btnOriginal = document.getElementById('btn-original');
-        const btnSegmentation = document.getElementById('btn-segmentation');
-        btnOriginal.classList.add('btn-primary');
-        btnOriginal.classList.remove('btn-outline');
-        btnSegmentation.classList.remove('btn-primary');
-        btnSegmentation.classList.add('btn-outline');
+        syncSegmentationLayerImage();
+        setImageBlendPercentage(0);
 
         // Crear brush cuando la imagen carga
         imgView.onload = function() {
             createBrushSelection(imageWrapper, imgView);
+            setImageBlendPercentage(currentImageBlendPercent);
             // Cargar todos los puntos de gaze y fixation para la imagen completa
             loadAllPointsForImage(selectedImage);
         };
+        imgView.src = currentImageOriginalPath;
 
-        loadScarfPlot(selectedImage);
+        loadScarfPlot(selectedImage, currentDataType);
         loadHeatmap(selectedImage, currentDataType, currentHeatmapMode);
     } else {
         imgView.src = ""; // or some placeholder
+        if (segView) segView.src = "";
+        setImageBlendPercentage(0);
         currentImageOriginalPath = null;
         currentImageSegmentationPath = null;
         segmentationCanvas = null;
@@ -5825,12 +6175,9 @@ if (datasetSelect) {
             segmentationCanvas = null;
             originalSegmentationImage = null;
 
-            // Si estamos en modo segmentación, recargar la imagen
-            if (currentImageMode === 'segmentation') {
-                const imgView = document.getElementById('sel-img-view');
-                imgView.src = currentImageSegmentationPath;
-                console.log(`Reloaded segmentation image with new dataset`);
-            }
+            syncSegmentationLayerImage();
+            setImageBlendPercentage(currentImageBlendPercent);
+            console.log(`Reloaded segmentation layer with new dataset`);
 
             loadHeatmap(selectedImg, currentDataType, currentHeatmapMode);
             loadScarfPlot(selectedImg, currentDataType);

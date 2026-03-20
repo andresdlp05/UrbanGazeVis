@@ -7,11 +7,43 @@ body {
     pointer-events: none;
 }
 
-#sel-img-view {
+#sel-img-view,
+#sel-img-view-seg {
     max-width: calc(100% / 1.5);
     max-height: calc(100% / 1.5);
-    transform: scale(1.5);
     transform-origin: center center;
+}
+
+#sel-img-view {
+    transform: scale(1.5);
+    position: relative;
+    z-index: 2;
+}
+
+#sel-img-view-seg {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(1.5);
+    pointer-events: none;
+    z-index: 3;
+    clip-path: inset(0 100% 0 0);
+    -webkit-clip-path: inset(0 100% 0 0);
+    opacity: 0;
+}
+
+#img-compare-divider {
+    position: absolute;
+    width: 2px;
+    background: rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+    pointer-events: none;
+    z-index: 1188;
+    display: none;
+}
+
+#img-compare-slider {
+    direction: rtl;
 }
 
 #brushOverlay {

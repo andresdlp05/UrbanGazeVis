@@ -68,8 +68,8 @@ fill="currentColor" viewBox="0 0 24 24" >
       <fieldset class="fieldset">
       <legend class="fieldset-legend">Points:</legend>
       <select class="select select-xs select-bordered w-full" id="data-type-select">
-         <option value="fixations">Fixations Points</option>
-         <option value="gaze" selected>Gaze Points</option>
+         <option value="fixations" selected>Fixations Points</option>
+         <option value="gaze">Gaze Points</option>
       </select>
       </fieldset>
       <fieldset class="fieldset">
@@ -94,12 +94,17 @@ fill="currentColor" viewBox="0 0 24 24" >
       <div class="h-[calc(95%)] w-full flex flex-col gap-1 p-1">
       <div class="h-[calc(95%)] w-full flex items-center justify-center overflow-hidden relative" id="component-1">
          <img id="sel-img-view" class="h-full">
+         <img id="sel-img-view-seg" class="h-full" alt="">
+         <div id="img-compare-divider"></div>
          <div id="overlay-points-container"></div>
       </div>
       <div class="h-[calc(5%)] flex flex-row justify-center gap-2" id="img-view-controls">
          <div class="btn btn-ghost btn-sm h-full pointer-events-none">Mode:</div>
-         <button id="btn-original" class="btn btn-sm h-full btn-primary" onclick="switchImageView('original')">Original</button>
-         <button id="btn-segmentation" class="btn btn-sm h-full btn-outline" onclick="switchImageView('segmentation')">Segmentation</button>
+         <div class="flex flex-row items-center gap-2 h-full min-w-[220px]">
+            <span class="text-xs text-secondary">Segmentation</span>
+            <input id="img-compare-slider" type="range" min="0" max="100" value="0" dir="rtl" class="range range-xs range-primary w-36" />
+            <span id="img-compare-value" class="text-xs w-10 text-right">0%</span>
+         </div>
          <div class="btn btn-ghost btn-sm h-full pointer-events-none">Overlay:</div>
          <div class="flex flex-row gap-3 items-center h-full">
             <label class="flex items-center gap-1 cursor-pointer">
