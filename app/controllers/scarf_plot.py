@@ -57,10 +57,6 @@ class ScarfPlotController:
 
             if self.data is None: return
 
-            # --- CORRECCIÓN IMPORTANTE ---
-            # NO modificamos self.data['ImageName'] aquí porque rompería el Heatmap.
-            # NO agregamos self.data['group'] aquí por la misma razón.
-            # Haremos todo eso sobre una COPIA filtrada en get_scarf_plot_data.
 
             # Cargar mapeo de colores base (solo lectura)
             if 'hex_color' in self.data.columns and 'main_class' in self.data.columns:
@@ -88,9 +84,11 @@ class ScarfPlotController:
             class_column = 'main_class'
             color_column = 'hex_color'
         elif dataset_select == 'grouped':
-            class_column = 'class_id_grouped'
+            class_column = 'main_class_grouped'      
+            class_id_column = 'main_class_grouped'
             ratio_column = 'class_ratio_grouped'
             color_column = 'hex_color_grouped'
+
         elif dataset_select == 'grouped_disorder':
             class_column = 'group_name'
             color_column = 'hex_color'
@@ -106,22 +104,8 @@ class ScarfPlotController:
             filtered = self.data[mask].copy() # .copy() crea un nuevo DF independiente
 
             if len(filtered) == 0: return {'error': f'No data for image {image_id}'}
-
-            # --- AHORA SI PODEMOS MODIFICAR 'filtered' ---
             
-            # 1. Generar columna 'group' SOLO en este subconjunto si se necesita
-            if dataset_select == 'grouped' and 'group' not in filtered.columns:
-                def map_group(cls):
-                    c = str(cls).lower()
-                    if 'build' in c or 'house' in c: return 'Building'
-                    if 'tree' in c or 'veg' in c: return 'Vegetation'
-                    if 'car' in c or 'bus' in c: return 'Car'
-                    if 'road' in c: return 'Road'
-                    if 'walk' in c: return 'Sidewalk'
-                    if 'sky' in c: return 'Sky'
-                    if 'person' in c: return 'Person'
-                    return 'Other'
-                filtered['group'] = filtered['main_class'].apply(map_group)
+         
 
             # 2. Filtrar participantes
             valid_participants = self.get_valid_participants_for_image(image_id)
@@ -262,7 +246,8 @@ class ScarfPlotController:
                 'participant_id': participant_id,
                 'total_participants': len(participants),
                 'scarf_data': scarf_data,
-                'color_mapping': self.grupo_color_mapping if dataset_select == 'grouped' else self.color_mapping,
+                #'color_mapping': self.grupo_color_mapping if dataset_select == 'grouped' else self.color_mapping,
+                'color_mapping': self.color_mapping,
                 'status': 'success'
             }
 

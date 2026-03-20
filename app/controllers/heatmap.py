@@ -110,8 +110,8 @@ class HeatmapController:
  # Time	ImageIndex	ImageName	X	Y	Z	participante	pixelX	pixelY	class_id	
  # class_name	ratio	hex_color	main_class	class_id_grouped	class_ratio_grouped	hex_color_grouped
         elif dataset_select == 'grouped':
-            class_column = 'class_id'
-            class_id_column = 'class_id'  
+            class_column = 'main_class_grouped'
+            class_id_column = 'main_class_grouped'  
             ratio_column = 'class_ratio_grouped'
             color_column = 'hex_color_grouped'
 
