@@ -88,8 +88,9 @@ class ScarfPlotController:
             class_column = 'main_class'
             color_column = 'hex_color'
         elif dataset_select == 'grouped':
-            class_column = 'group'
-            color_column = 'hex_color'
+            class_column = 'class_id_grouped'
+            ratio_column = 'class_ratio_grouped'
+            color_column = 'hex_color_grouped'
         elif dataset_select == 'grouped_disorder':
             class_column = 'group_name'
             color_column = 'hex_color'

@@ -60,7 +60,7 @@ class DataService:
         # Mapeo de dataset a archivo CSV
         dataset_files = {
             'main_class': 'static/data/df_final1.csv',
-            'grouped': 'static/data/FINAL_Group.csv',
+            'grouped': 'static/data/df_final1.csv',
             'disorder': 'static/data/FINAL_20kDisorder.csv',
             'grouped_disorder': 'static/data/FINAL_GroupDisorder.csv'
         }

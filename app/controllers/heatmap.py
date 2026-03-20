@@ -107,11 +107,13 @@ class HeatmapController:
             class_column = 'main_class'
             class_id_column = 'class_id' # Asumiendo que 'class_id' es el ID para main_class
             color_column = 'hex_color'
- 
+ # Time	ImageIndex	ImageName	X	Y	Z	participante	pixelX	pixelY	class_id	
+ # class_name	ratio	hex_color	main_class	class_id_grouped	class_ratio_grouped	hex_color_grouped
         elif dataset_select == 'grouped':
-            class_column = 'group'
-            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'class_id'
+            class_id_column = 'class_id'  
+            ratio_column = 'class_ratio_grouped'
+            color_column = 'hex_color_grouped'
 
         elif dataset_select == 'grouped_disorder':
             class_column = 'group_name'
@@ -444,7 +446,18 @@ def get_heatmap(image_id):
     top_n = request.args.get('top_n', 15, type=int)
     data_type = request.args.get('data_type', 'gaze').lower()
     dataset_select = request.args.get('dataset_select', 'main_class').lower()
-    print(f"[DEBUG API] get_heatmap called: image_id={image_id}, data_type={data_type}, dataset_select={dataset_select}")
-    print(f"[DEBUG API] request.args = {dict(request.args)}")
-    data = heatmap_controller.get_heatmap_data(image_id, top_n, data_type, dataset_select)
+    
+    # 1. Leer el parámetro mode que envía Javascript
+    mode = request.args.get('mode', 'attention').lower()
+    
+    print(f"[DEBUG API] get_heatmap: image={image_id}, data={data_type}, dataset={dataset_select}, mode={mode}")
+    
+    # 2. Enviarlo a la función
+    data = heatmap_controller.get_heatmap_data(
+        image_id=image_id, 
+        top_n_clases=top_n, 
+        data_type=data_type, 
+        dataset_select=dataset_select, 
+        mode=mode
+    )
     return jsonify(data)
