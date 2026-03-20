@@ -461,9 +461,12 @@ def analyze_area(image_id):
 
         # Convertir a diccionarios de manera vectorizada
         # Solo incluir campos esenciales para gaze points (sin 'start' que confunde con fixations)
-        gaze_records = image_gaze_data[[
-            'participante', 'ImageIndex', 'ImageName', 'pixelX', 'pixelY', 'Time'
-        ]].copy()
+        base_gaze_columns = ['participante', 'ImageIndex', 'ImageName', 'pixelX', 'pixelY', 'Time']
+        optional_semantic_columns = [
+            col for col in ['main_class', 'group', 'group_name', 'class_id', 'group_class_id']
+            if col in image_gaze_data.columns
+        ]
+        gaze_records = image_gaze_data[base_gaze_columns + optional_semantic_columns].copy()
 
         # Renombrar columnas para que coincidan con el formato esperado
         gaze_records = gaze_records.rename(columns={

@@ -1149,6 +1149,36 @@ function createBrushSelection(imageWrapper, img) {
         setClearButtonEnabled(true);
     }
 
+    function clearAreaAnalysisVisualsDuringDrag() {
+        // Cancelar timers/requests para que no reaparezcan estadísticas viejas durante el movimiento.
+        if (circleSelectionDebounceTimer) {
+            clearTimeout(circleSelectionDebounceTimer);
+            circleSelectionDebounceTimer = null;
+        }
+        if (areaAnalysisAbortController) {
+            areaAnalysisAbortController.abort();
+            areaAnalysisAbortController = null;
+        }
+        areaAnalysisRequestCounter += 1;
+        lastAreaAnalysisSignature = null;
+
+        // Limpiar elementos estadísticos vinculados al área actual.
+        currentAnalyzedArea = null;
+        currentAreaData = null;
+        d3.select('#glyphTooltip').remove();
+        currentGlyph = null;
+        clearHeatmapAreaFrames();
+        clearScarfAreaSelectionHighlight();
+
+        // Mantener únicamente highlights globales de participante (si existen).
+        if (selectedPart !== null && selectedPart !== undefined && selectedPart !== 'all' && selectedPart !== '') {
+            highlightParticipantColumnInHeatmap(selectedPart);
+            highlightParticipantInScarf(selectedPart);
+        } else {
+            removeParticipantColumnHighlight();
+        }
+    }
+
     const selectionHitArea = svgContainer.append('circle')
         .attr('class', 'circle-selection-hit')
         .style('fill', 'transparent')
@@ -1227,6 +1257,7 @@ function createBrushSelection(imageWrapper, img) {
             window.brushActive = true;
             userHasInteracted = true;
             enableClearButton();
+            clearAreaAnalysisVisualsDuringDrag();
         })
         .on('drag', function(event) {
             const [mx, my] = d3.pointer(event, svgContainer.node());
@@ -1244,6 +1275,7 @@ function createBrushSelection(imageWrapper, img) {
             window.brushActive = true;
             userHasInteracted = true;
             enableClearButton();
+            clearAreaAnalysisVisualsDuringDrag();
         })
         .on('drag', function(event) {
             const [mx, my] = d3.pointer(event, svgContainer.node());
@@ -1284,6 +1316,7 @@ function createBrushSelection(imageWrapper, img) {
         clearOverlayPoints();
         removeBoundingBoxOverlay();
         removeParticipantColumnHighlight();
+        clearHeatmapAreaFrames();
         removeScarfSegmentHighlight();
         currentScarfSegment = null;
 
@@ -2249,10 +2282,9 @@ class RadialGlyph {
                 .attr("class", "participant-band-divider")
                 .attr("r", d => d.radius)
                 .attr("fill", "none")
-                .attr("stroke", "#777")
-                .attr("stroke-width", 0.8)
-                .attr("opacity", 0.5)
-                .attr("stroke-dasharray", "2,2");
+                .attr("stroke", d => (d.timeIdx % 2 === 0 ? "#8ca5bb" : "#aac0d3"))
+                .attr("stroke-width", 0.75)
+                .attr("opacity", 0.35);
         }
 
         // Render time labels - sin rotación, siempre en la posición original (arriba)
@@ -2446,6 +2478,7 @@ function analyzeSelectedArea(area) {
         console.log('Fixation points in overlay:', currentFixationPoints.length);
 
         highlightScarfSegmentsForArea(data);
+        highlightHeatmapAreaEntities(data);
         showGlyphTooltip(requestPayload, data);
     })
     .catch(error => {
@@ -2690,6 +2723,39 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
             return scoreB - scoreA; // Descendente (mayor score primero)
         });
         console.log('Images sorted by score (descending):', sortedValues.map(v => `${v}:${imageScores[v]?.toFixed(1)}`));
+    }
+    // En Controls > Participant: ordenar de mayor a menor
+    if (labelPrefix === 'part' && selectId === 'part-select') {
+        const toNumericOrNull = (value) => {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        };
+
+        if (scoresByValue && scoresByValue.size > 0) {
+            sortedValues.sort((a, b) => {
+                const scoreA = Number(scoresByValue.get(String(a)) ?? -Infinity);
+                const scoreB = Number(scoresByValue.get(String(b)) ?? -Infinity);
+                if (scoreA !== scoreB) {
+                    return scoreB - scoreA; // mayor score primero
+                }
+
+                const numA = toNumericOrNull(a);
+                const numB = toNumericOrNull(b);
+                if (numA !== null && numB !== null) {
+                    return numB - numA;
+                }
+                return String(b).localeCompare(String(a));
+            });
+        } else {
+            sortedValues.sort((a, b) => {
+                const numA = toNumericOrNull(a);
+                const numB = toNumericOrNull(b);
+                if (numA !== null && numB !== null) {
+                    return numB - numA;
+                }
+                return String(b).localeCompare(String(a));
+            });
+        }
     }
 
     sortedValues.forEach(v => {
@@ -4831,6 +4897,7 @@ function visualizeHeatmap(data) {
         .data(heatmapData)
         .enter()
         .append('rect')
+        .attr('class', 'heatmap-cell')
         .attr('x', d => xScale(d.col))
         .attr('y', d => yScale(d.row))
         .attr('width', xScale.bandwidth())
@@ -4863,6 +4930,7 @@ function visualizeHeatmap(data) {
         .data(dataParticipant)
         .enter()
         .append('text')
+        .attr('class', 'heatmap-participant-axis-label')
         .attr('x', d => xScale(d.participant) + xScale.bandwidth() / 2)
         .attr('y', 15)
         .attr('text-anchor', 'middle')
@@ -5039,6 +5107,12 @@ function visualizeHeatmap(data) {
         .attr('fill', 'var(--color-secondary)')
         .attr("transform", "rotate(90," + (barX + barWidth + 8) + "," + (barY + barHeight / 2) + ")")
         .text("Attention");
+
+    if (currentAreaData) {
+        highlightHeatmapAreaEntities(currentAreaData);
+    } else {
+        clearHeatmapAreaFrames();
+    }
 
 }
 
@@ -5263,6 +5337,246 @@ function removeBoundingBoxOverlay() {
     if (border) border.remove();
 }
 
+function getHeatmapClassFieldForCurrentDataset() {
+    switch (currentDatasetSelect) {
+        case 'grouped':
+            return 'group';
+        case 'grouped_disorder':
+            return 'group_name';
+        case 'disorder':
+        case 'main_class':
+        default:
+            return 'main_class';
+    }
+}
+
+function normalizeHeatmapClassValue(value) {
+    if (value === null || value === undefined) return null;
+    const parsed = String(value).trim();
+    if (!parsed) return null;
+    const lowered = parsed.toLowerCase();
+    if (lowered === 'nan' || lowered === 'none' || lowered === 'null' || lowered === 'undefined') {
+        return null;
+    }
+    return parsed;
+}
+
+function parseClassNamesFallback(rawValue) {
+    if (Array.isArray(rawValue)) {
+        return rawValue
+            .map(normalizeHeatmapClassValue)
+            .filter(Boolean);
+    }
+
+    if (typeof rawValue !== 'string') {
+        return [];
+    }
+
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+        return [];
+    }
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+                return parsed.map(normalizeHeatmapClassValue).filter(Boolean);
+            }
+        } catch (_error) {
+            try {
+                const normalized = trimmed
+                    .replace(/'/g, '"')
+                    .replace(/\bNone\b/g, 'null');
+                const parsedNormalized = JSON.parse(normalized);
+                if (Array.isArray(parsedNormalized)) {
+                    return parsedNormalized.map(normalizeHeatmapClassValue).filter(Boolean);
+                }
+            } catch (_errorAgain) {
+                // Fallback below
+            }
+        }
+    }
+
+    return trimmed
+        .replace(/^\[/, '')
+        .replace(/\]$/, '')
+        .split(',')
+        .map(item => item.replace(/^['"]|['"]$/g, ''))
+        .map(normalizeHeatmapClassValue)
+        .filter(Boolean);
+}
+
+function getAreaEntitiesForHeatmap(areaData) {
+    const participants = new Set();
+    const classes = new Set();
+    const classField = getHeatmapClassFieldForCurrentDataset();
+
+    const collect = (points, includeClassFallback = false) => {
+        if (!Array.isArray(points)) return;
+
+        points.forEach(point => {
+            const participantId = getPointParticipantId(point);
+            if (participantId) {
+                participants.add(String(participantId));
+            }
+
+            const classValue = normalizeHeatmapClassValue(point?.[classField]);
+            if (classValue) {
+                classes.add(classValue);
+                return;
+            }
+
+            if (includeClassFallback) {
+                const fallbackClasses = parseClassNamesFallback(point?.class_names);
+                fallbackClasses.forEach(name => classes.add(name));
+            }
+        });
+    };
+
+    // Priorizar gaze_points porque corresponden a puntos reales dentro del glyph
+    collect(areaData?.gaze_points, false);
+
+    // Fallback cuando no vengan clases en gaze_points (ej: fuentes antiguas)
+    if (classes.size === 0) {
+        collect(areaData?.data_for_analysis, true);
+    }
+    if (classes.size === 0) {
+        collect(areaData?.fixations, true);
+    }
+
+    return { participants, classes };
+}
+
+function getHeatmapBoundsFromCells(cellNodes) {
+    if (!Array.isArray(cellNodes) || cellNodes.length === 0) {
+        return null;
+    }
+
+    const boxes = cellNodes
+        .map(node => {
+            const rect = d3.select(node);
+            const x = Number(rect.attr('x'));
+            const y = Number(rect.attr('y'));
+            const width = Number(rect.attr('width'));
+            const height = Number(rect.attr('height'));
+            if (![x, y, width, height].every(Number.isFinite)) {
+                return null;
+            }
+            return { x, y, width, height };
+        })
+        .filter(Boolean);
+
+    if (boxes.length === 0) {
+        return null;
+    }
+
+    const minX = Math.min(...boxes.map(box => box.x));
+    const minY = Math.min(...boxes.map(box => box.y));
+    const maxX = Math.max(...boxes.map(box => box.x + box.width));
+    const maxY = Math.max(...boxes.map(box => box.y + box.height));
+
+    return {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY
+    };
+}
+
+function clearHeatmapAreaFrames() {
+    d3.select('#heatmap-area-frame-layer').remove();
+}
+
+function highlightHeatmapAreaEntities(areaData) {
+    clearHeatmapAreaFrames();
+
+    if (!areaData) {
+        return;
+    }
+
+    const svg = d3.select('#heatmap-plot svg g');
+    if (svg.empty()) {
+        return;
+    }
+
+    const { participants, classes } = getAreaEntitiesForHeatmap(areaData);
+    if (participants.size === 0 && classes.size === 0) {
+        return;
+    }
+
+    const participantSet = new Set(Array.from(participants).map(String));
+    const classSetLower = new Set(
+        Array.from(classes).map(className => String(className).trim().toLowerCase())
+    );
+
+    const frameLayer = svg.append('g')
+        .attr('id', 'heatmap-area-frame-layer')
+        .style('pointer-events', 'none');
+
+    const PARTICIPANT_STROKE = '#f97316';
+    const PARTICIPANT_FILL = 'rgba(249, 115, 22, 0.08)';
+    const CLASS_STROKE = '#0ea5e9';
+    const CLASS_FILL = 'rgba(14, 165, 233, 0.08)';
+
+    const matchedRows = new Set();
+    svg.selectAll('.heatmap-cell').each(function(d) {
+        if (!d || d.row === null || d.row === undefined) {
+            return;
+        }
+        const normalizedRow = String(d.row).trim().toLowerCase();
+        if (classSetLower.has(normalizedRow)) {
+            matchedRows.add(String(d.row));
+        }
+    });
+
+    matchedRows.forEach(rowName => {
+        const rowCells = svg.selectAll('.heatmap-cell')
+            .filter(d => d && String(d.row) === rowName)
+            .nodes();
+
+        const bounds = getHeatmapBoundsFromCells(rowCells);
+        if (!bounds) {
+            return;
+        }
+
+        frameLayer.append('rect')
+            .attr('class', 'heatmap-area-class-frame')
+            .attr('x', bounds.x - 1.5)
+            .attr('y', bounds.y - 1.5)
+            .attr('width', bounds.width + 3)
+            .attr('height', bounds.height + 3)
+            .attr('fill', CLASS_FILL)
+            .attr('stroke', CLASS_STROKE)
+            .attr('stroke-width', 1.4)
+            .attr('rx', 2)
+            .attr('ry', 2);
+    });
+
+    participantSet.forEach(participantId => {
+        const participantCells = svg.selectAll('.heatmap-cell')
+            .filter(d => d && String(d.col) === participantId)
+            .nodes();
+
+        const bounds = getHeatmapBoundsFromCells(participantCells);
+        if (!bounds) {
+            return;
+        }
+
+        frameLayer.append('rect')
+            .attr('class', 'heatmap-area-participant-frame')
+            .attr('x', bounds.x - 1.5)
+            .attr('y', bounds.y - 1.5)
+            .attr('width', bounds.width + 3)
+            .attr('height', bounds.height + 3)
+            .attr('fill', PARTICIPANT_FILL)
+            .attr('stroke', PARTICIPANT_STROKE)
+            .attr('stroke-width', 1.8)
+            .attr('rx', 2)
+            .attr('ry', 2);
+    });
+}
+
 function highlightParticipantColumnInHeatmap(participantId) {
     console.log('Highlighting participant column:', participantId);
 
@@ -5278,8 +5592,10 @@ function highlightParticipantColumnInHeatmap(participantId) {
     const allRects = svg.selectAll('rect');
     const participantRects = [];
 
+    const participantKey = String(participantId);
+
     allRects.each(function(d) {
-        if (d && d.col === participantId) {
+        if (d && String(d.col) === participantKey) {
             participantRects.push(this);
         }
     });
@@ -5603,6 +5919,30 @@ function removeScarfSegmentHighlight() {
         .attr('stroke-width', 1);
 }
 
+function highlightParticipantInScarf(participantId) {
+    const participantKey = (participantId !== null && participantId !== undefined && participantId !== '' && participantId !== 'all')
+        ? String(participantId)
+        : null;
+
+    if (!participantKey) {
+        if (currentAnalyzedArea && currentAreaData) {
+            highlightScarfSegmentsForArea(currentAreaData);
+        } else {
+            removeScarfSegmentHighlight();
+        }
+        return;
+    }
+
+    d3.selectAll('.scarf-segment')
+        .attr('opacity', d => (d && String(d.participant) === participantKey ? 1 : SCARF_SEGMENT_DIM_OPACITY))
+        .attr('stroke', d => (d && String(d.participant) === participantKey ? '#000000' : '#333'))
+        .attr('stroke-width', d => (d && String(d.participant) === participantKey ? 0.8 : 0.5));
+
+    d3.selectAll('.scarf-participant-label')
+        .style('font-weight', d => (d && String(d.participant) === participantKey ? '700' : '400'))
+        .style('opacity', d => (d && String(d.participant) === participantKey ? 1 : 0.5));
+}
+
 // Función principal: mostrar puntos para un segmento del scarf plot
 function showPointsForScarfSegment(segment) {
     console.log('Showing points for scarf segment:', segment);
@@ -5612,6 +5952,11 @@ function showPointsForScarfSegment(segment) {
     setClearButtonEnabled(true);
 
     const { start_time, end_time, participant } = segment;
+    selectedPart = String(participant);
+    const partSelect = document.getElementById('part-select');
+    if (partSelect) {
+        partSelect.value = selectedPart;
+    }
 
     // Convertir tiempos de milisegundos a segundos si es necesario
     const startSec = start_time / 1000;
@@ -5825,6 +6170,7 @@ function visualizeScarfPlot(data) {
         .data(dataParticipant)
         .enter()
         .append('text')
+        .attr('class', 'scarf-participant-label')
         .attr('x', -10)
         .attr('y', d => participantScale(d.participant) + participantScale.bandwidth() / 2)
         .attr('text-anchor', 'end')
@@ -5832,7 +6178,26 @@ function visualizeScarfPlot(data) {
         .attr('font-size', '12px')
         .style('cursor', 'pointer') // Indicate clickable
         .style('fill','var(--color-secondary)')
-        .text(d => 'part-' + d.participant + ' ('+d.score+')');
+        .text(d => 'part-' + d.participant + ' ('+d.score+')')
+        .on('click', function(_event, d) {
+            const participantId = d?.participant;
+            if (participantId === undefined || participantId === null) {
+                return;
+            }
+
+            selectedPart = String(participantId);
+            const partSelect = document.getElementById('part-select');
+            if (partSelect) {
+                partSelect.value = selectedPart;
+            }
+
+            highlightParticipantInScarf(selectedPart);
+            highlightParticipantColumnInHeatmap(selectedPart);
+
+            if (currentOverlayTypes && currentOverlayTypes.length > 0) {
+                updateOverlay();
+            }
+        });
 
     svg.append('g')
         .attr('transform', `translate(0,${height})`)
@@ -5900,6 +6265,10 @@ function visualizeScarfPlot(data) {
 
     if (currentAnalyzedArea && currentAreaData) {
         highlightScarfSegmentsForArea(currentAreaData);
+    }
+
+    if (selectedPart && selectedPart !== 'all') {
+        highlightParticipantInScarf(selectedPart);
     }
 }
 
@@ -6010,6 +6379,7 @@ document.getElementById("img-select").addEventListener("change", function() {
         currentGlyph = null;
         currentAnalyzedArea = null;
         currentAreaData = null;
+        clearHeatmapAreaFrames();
     }
 });
 
@@ -6125,6 +6495,14 @@ if (datasetSelect) {
 document.getElementById("part-select").addEventListener("change", function() {
     selectedPart = this.value;
     console.log("Selected participant:", selectedPart);
+
+    if (selectedPart === 'all') {
+        removeParticipantColumnHighlight();
+    } else {
+        highlightParticipantColumnInHeatmap(selectedPart);
+    }
+
+    highlightParticipantInScarf(selectedPart);
 
     // Actualizar overlay si hay tipos seleccionados
     if (currentOverlayTypes && currentOverlayTypes.length > 0) {
