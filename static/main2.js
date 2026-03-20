@@ -20,6 +20,7 @@ var classColorMap = {}; // Mapeo de clase → color RGB para resaltar en segment
 var currentAnalyzedArea = null;
 var currentAreaData = null;
 var currentGlyph = null;
+var isDirectionRingVisible = true;
 var currentDataType = 'fixations'; // 'fixations' o 'gaze'
 var currentDatasetSelect = 'main_class'; // 'main_class' o 'grupo'
 var currentHeatmapMode = 'attention'; // 'attention' o 'time'
@@ -1417,6 +1418,11 @@ class RadialGlyph {
         console.log("RadialGlyph.initializeSVG: SVG reinitialized completely");
     }
 
+    setDirectionRingVisible(visible) {
+        const shouldShow = Boolean(visible);
+        this.ring1Group.style("display", shouldShow ? null : "none");
+    }
+
     update(data) {
         console.log("RadialGlyph.update() iniciado con datos:", data);
         this.rawData = data; // Guardar datos originales para acceso posterior
@@ -1444,6 +1450,7 @@ class RadialGlyph {
         this.renderHistogramCenter(processedData.histogramData);
         this.renderRing1(processedData.directions);
         this.renderRing2(processedData.timeData);
+        this.setDirectionRingVisible(isDirectionRingVisible);
 
         console.log("RadialGlyph.update() completado!");
     }
@@ -1733,119 +1740,9 @@ class RadialGlyph {
         // Clear previous center elements
         this.centerGroup.selectAll("*").remove();
 
-        // Validate histogram data
-        if (!histogramData) {
-            console.warn("Center histogram: No data provided");
-            this.centerGroup.append("text")
-                .attr("text-anchor", "middle")
-                .attr("dy", "0.3em")
-                .style("font-size", "11px")
-                .style("fill", "#999")
-                .text("(no data)");
-            return;
-        }
-
-        const { allHistogram, patchHistogram, patchAvg, patchCount, allAvg, allCount } = histogramData;
-
-        // Validate histogram arrays
-        if (!allHistogram || !patchHistogram || allHistogram.length === 0 || patchHistogram.length === 0) {
-            console.warn("Center histogram: Invalid histogram data");
-            this.centerGroup.append("text")
-                .attr("text-anchor", "middle")
-                .attr("dy", "0.3em")
-                .style("font-size", "11px")
-                .style("fill", "#999")
-                .text("(no data)");
-            return;
-        }
-
-        const histogramWidth = this.config.centerRadius * 1.8;
-        const histogramHeight = this.config.centerRadius * 1.2;
-        const margin = { top: 5, right: 3, bottom: 10, left: 3 };
-
-        const histogramGroup = this.centerGroup.append("g")
-            .attr("class", "histogram-group")
-            .attr("transform", `translate(${-histogramWidth/2}, ${-histogramHeight/2})`);
-
-        // Use linear scale for x-axis (for smooth line)
-        const xScale = d3.scaleLinear()
-            .domain([0, 9])
-            .range([margin.left, histogramWidth - margin.right]);
-
-        const maxFreq = Math.max(...allHistogram, ...patchHistogram, 1);
-        const yScale = d3.scaleLinear()
-            .domain([0, maxFreq])
-            .range([histogramHeight - margin.bottom, margin.top]);
-
-        // Create line generator with Catmull-Rom curve
-        const lineGenerator = d3.line()
-            .x((d, i) => xScale(i))
-            .y(d => yScale(d))
-            .curve(d3.curveCatmullRom);
-
-        // Draw the TODOS smooth curve (blue/cyan, lighter)
-        histogramGroup.append("path")
-            .attr("class", "histogram-curve-todos")
-            .attr("d", lineGenerator(allHistogram))
-            .attr("fill", "none")
-            .attr("stroke", "#4ECDC4")
-            .attr("stroke-width", 1.5)
-            .attr("opacity", 0.6);
-
-        // Draw points on TODOS curve
-        histogramGroup.selectAll(".histogram-point-todos")
-            .data(allHistogram)
-            .join("circle")
-            .attr("class", "histogram-point-todos")
-            .attr("cx", (d, i) => xScale(i))
-            .attr("cy", d => yScale(d))
-            .attr("r", 1.5)
-            .attr("fill", "#4ECDC4")
-            .attr("opacity", 0.5);
-
-        // Draw the PATCH smooth curve (orange, stronger) - positioned lower
-        histogramGroup.append("path")
-            .attr("class", "histogram-curve-patch")
-            .attr("d", lineGenerator(patchHistogram))
-            .attr("fill", "none")
-            .attr("stroke", "#FF6B35")
-            .attr("stroke-width", 2)
-            .attr("opacity", 0.9)
-            .attr("transform", "translate(0, 8)");
-
-        // Draw points on PATCH curve
-        histogramGroup.selectAll(".histogram-point-patch")
-            .data(patchHistogram)
-            .join("circle")
-            .attr("class", "histogram-point-patch")
-            .attr("cx", (d, i) => xScale(i))
-            .attr("cy", d => yScale(d) + 8)
-            .attr("r", 2)
-            .attr("fill", "#FF6B35")
-            .attr("opacity", 0.7);
-
-        // Mostrar "Todos(N): X.X | Patch(N): X.X" - positioned above histogram
-        this.centerGroup.append("text")
-            .attr("class", "avg-text")
-            .attr("text-anchor", "middle")
-            .attr("dy", "-50px")
-            .style("font-size", "9px")
-            .style("font-weight", "bold")
-            .style("fill", "#4ECDC4")
-            .style("pointer-events", "none")
-            .style("z-index", "1000")
-            .text(`All(${allCount}): ${allAvg.toFixed(1)}`);
-
-        this.centerGroup.append("text")
-            .attr("class", "patch-text")
-            .attr("text-anchor", "middle")
-            .attr("dy", "-36px")
-            .style("font-size", "9px")
-            .style("font-weight", "bold")
-            .style("fill", "#FF6B35")
-            .style("pointer-events", "none")
-            .style("z-index", "1000")
-            .text(`Selection(${patchCount}): ${patchAvg.toFixed(1)}`);
+        // User request: remove center "All/Selection" curves and labels.
+        // Keep center empty so only rings are shown.
+        return;
     }
 
     renderRing1(directionsData) {
@@ -2717,6 +2614,32 @@ document.querySelectorAll('.tabs input[name="tabs-nav"]').forEach(input => {
 });
 
 initializeImageBlendSlider();
+initializeDirectionRingToggleControl();
+
+function updateDirectionRingToggleButtonLabel() {
+    const btn = document.getElementById('toggle-direction-ring-btn');
+    if (!btn) return;
+    btn.textContent = isDirectionRingVisible ? 'Hide 4-Sector Ring' : 'Show 4-Sector Ring';
+}
+
+function initializeDirectionRingToggleControl() {
+    const btn = document.getElementById('toggle-direction-ring-btn');
+    if (!btn) {
+        console.warn('Direction ring toggle button not found');
+        return;
+    }
+
+    updateDirectionRingToggleButtonLabel();
+
+    btn.addEventListener('click', () => {
+        isDirectionRingVisible = !isDirectionRingVisible;
+        updateDirectionRingToggleButtonLabel();
+
+        if (currentGlyph && typeof currentGlyph.setDirectionRingVisible === 'function') {
+            currentGlyph.setDirectionRingVisible(isDirectionRingVisible);
+        }
+    });
+}
 
 function getParticipantScoresForImage(imageId) {
     if (imageId === null || imageId === undefined || imageId === '' || imageId === 'all') {
