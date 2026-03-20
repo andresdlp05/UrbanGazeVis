@@ -2718,8 +2718,29 @@ document.querySelectorAll('.tabs input[name="tabs-nav"]').forEach(input => {
 
 initializeImageBlendSlider();
 
+function getParticipantScoresForImage(imageId) {
+    if (imageId === null || imageId === undefined || imageId === '' || imageId === 'all') {
+        return null;
+    }
 
-function populateSelect(selectId, values, labelPrefix, all=true) {
+    const imageData = globalData.find(d => String(d.id) === String(imageId));
+    if (!imageData || !Array.isArray(imageData.participants)) {
+        return null;
+    }
+
+    const scoresByParticipant = new Map();
+    imageData.participants.forEach(entry => {
+        const participantId = entry?.participant;
+        const score = Number(entry?.score);
+        if (participantId !== undefined && participantId !== null && Number.isFinite(score)) {
+            scoresByParticipant.set(String(participantId), score);
+        }
+    });
+
+    return scoresByParticipant;
+}
+
+function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=null) {
     const select = document.getElementById(selectId);
     select.innerHTML = "";
     if (all){
@@ -2755,6 +2776,8 @@ function populateSelect(selectId, values, labelPrefix, all=true) {
         // Si es imagen y tenemos score, agregarlo en paréntesis
         if (labelPrefix === 'img' && imageScores[v] !== undefined) {
             opt.textContent = `${labelPrefix}-${v} (${imageScores[v].toFixed(1)})`;
+        } else if (labelPrefix === 'part' && scoresByValue && scoresByValue.has(String(v))) {
+            opt.textContent = `${labelPrefix}-${v} (${scoresByValue.get(String(v)).toFixed(1)})`;
         } else {
             opt.textContent = `${labelPrefix}-${v}`; // text = img-0 or part-4 etc.
         }
@@ -4924,17 +4947,6 @@ function visualizeHeatmap(data) {
         .style('fill','var(--color-secondary)')
         .text(d => d.participant);
 
-    svg.selectAll('heatmap-scores')
-        .data(dataParticipant)
-        .enter()
-        .append('text')
-        .attr('x', d => xScale(d.participant) + xScale.bandwidth() / 2)
-        .attr('y', -5)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', '12px')
-        .style('fill','var(--color-secondary)')
-        .text(d => d.score);
-
     // 7. Y Axis (Added class 'y-axis-label')
     svg.append('g')
         .selectAll('text')
@@ -4959,14 +4971,6 @@ function visualizeHeatmap(data) {
         .attr('font-size', '16px')
         .style('fill','var(--color-secondary)')
         .text('Participants');
-
-    svg.append('text')
-        .attr('x', -10)
-        .attr('y', -5)
-        .attr('text-anchor', 'end')
-        .attr('font-size', '12px')
-        .style('fill','var(--color-secondary)')
-        .text('Score');
 
     svg.append('text')
         .attr('transform', 'rotate(-90)')
@@ -6010,9 +6014,10 @@ function loadScarfPlot(imageId, dataType = 'gaze') {
 document.getElementById("img-select").addEventListener("change", function() {
     const selectedImage = this.value;
     const partSelect = document.getElementById("part-select");
+    const participantScores = getParticipantScoresForImage(selectedImage);
     if (partSelect.value === "all") {
         if (selectedImage === "all") {
-            populateSelect("part-select", allParticipants, "part");
+            populateSelect("part-select", allParticipants, "part", true, null);
         }
         else {
             // Fetch participants from backend (same source as heatmap/scarf plot)
@@ -6022,16 +6027,16 @@ document.getElementById("img-select").addEventListener("change", function() {
                     if (data.participants && Array.isArray(data.participants)) {
                         const parts = data.participants.map(String);
                         console.log(`Participants for image ${selectedImage}:`, parts);
-                        populateSelect("part-select", parts, "part");
+                        populateSelect("part-select", parts, "part", true, participantScores);
                     } else {
                         console.warn('No participants found for image', selectedImage);
-                        populateSelect("part-select", allParticipants, "part");
+                        populateSelect("part-select", allParticipants, "part", true, participantScores);
                     }
                 })
                 .catch(error => {
                     console.error('Error fetching participants:', error);
                     // Fallback to allParticipants if fetch fails
-                    populateSelect("part-select", allParticipants, "part");
+                    populateSelect("part-select", allParticipants, "part", true, participantScores);
                 });
         }
         partSelect.value = "all";
