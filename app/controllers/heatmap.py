@@ -104,25 +104,30 @@ class HeatmapController:
 
         # Mapear dataset_select a las columnas correctas del CSV # REVISAR
         if dataset_select == 'disorder':
-            class_column = 'main_class'
-            class_id_column = 'class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
- 
+            class_column = 'main_class_Disorder'
+            class_id_column = 'hex_color_Disorder' # Asumiendo que 'class_id' es el ID para main_class
+            ratio_column = 'class_ratio_Disorder'
+            color_column = 'hex_color_Disorder'
+ # Time	ImageIndex	ImageName	X	Y	Z	participante	pixelX	pixelY	class_id	
+ # class_name	ratio	hex_color	main_class	class_id_grouped	class_ratio_grouped	hex_color_grouped
         elif dataset_select == 'grouped':
-            class_column = 'group'
-            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'main_class_grouped'
+            class_id_column = 'main_class_grouped'  
+            ratio_column = 'class_ratio_grouped'
+            color_column = 'hex_color_grouped'
 
         elif dataset_select == 'grouped_disorder':
-            class_column = 'group_name'
-            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'main_class_GroupDisorder'
+            class_id_column = 'hex_color_GroupDisorder' # Asumiendo que 'class_id' es el ID para main_class
+            ratio_column = 'class_ratio_GroupDisorder'
+            color_column = 'hex_color_GroupDisorder'
 
         else:
             class_column = 'main_class'
             #class_id_column = 'group_class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             class_id_column = 'class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             color_column = 'hex_color'
+            ratio_column = 'ratio'
 
 
         print(f"  Using columns: class={class_column}, id={class_id_column}, color={color_column}")
@@ -238,9 +243,10 @@ class HeatmapController:
                         class_value = 'unknown'
 
                     # Obtener ratio promedio para esta clase
+                    # class_points = df_filtered[df_filtered[class_column] == class_value]
+                    # ratio_value = class_points['ratio'].mean() if len(class_points) > 0 else 1.0
                     class_points = df_filtered[df_filtered[class_column] == class_value]
-                    ratio_value = class_points['ratio'].mean() if len(class_points) > 0 else 1.0
-
+                    ratio_value = class_points[ratio_column].mean() if len(class_points) > 0 else 1.0
                     # Construir data_to_process con la columna correcta
                     data_row = {
                         'participante': participant_id,
@@ -294,11 +300,19 @@ class HeatmapController:
 
             # Obtener ratio de cada class en la imagen
             # Si la columna ratio no tiene datos válidos, usar 1.0 como default
-            if 'ratio' in df_filtered.columns:
+            # if 'ratio' in df_filtered.columns:
+            #     ratio_por_clase = (
+            #         df_filtered[[class_column, 'ratio']]
+            #         .dropna(subset=[class_column, 'ratio'])
+            #         .groupby(class_column)['ratio']
+            #         .mean()
+            #         .to_dict()
+            #     )
+            if ratio_column in df_filtered.columns:
                 ratio_por_clase = (
-                    df_filtered[[class_column, 'ratio']]
-                    .dropna(subset=[class_column, 'ratio'])
-                    .groupby(class_column)['ratio']
+                    df_filtered[[class_column, ratio_column]]
+                    .dropna(subset=[class_column, ratio_column])
+                    .groupby(class_column)[ratio_column]
                     .mean()
                     .to_dict()
                 )
@@ -444,7 +458,18 @@ def get_heatmap(image_id):
     top_n = request.args.get('top_n', 15, type=int)
     data_type = request.args.get('data_type', 'gaze').lower()
     dataset_select = request.args.get('dataset_select', 'main_class').lower()
-    print(f"[DEBUG API] get_heatmap called: image_id={image_id}, data_type={data_type}, dataset_select={dataset_select}")
-    print(f"[DEBUG API] request.args = {dict(request.args)}")
-    data = heatmap_controller.get_heatmap_data(image_id, top_n, data_type, dataset_select)
+    
+    # 1. Leer el parámetro mode que envía Javascript
+    mode = request.args.get('mode', 'attention').lower()
+    
+    print(f"[DEBUG API] get_heatmap: image={image_id}, data={data_type}, dataset={dataset_select}, mode={mode}")
+    
+    # 2. Enviarlo a la función
+    data = heatmap_controller.get_heatmap_data(
+        image_id=image_id, 
+        top_n_clases=top_n, 
+        data_type=data_type, 
+        dataset_select=dataset_select, 
+        mode=mode
+    )
     return jsonify(data)
