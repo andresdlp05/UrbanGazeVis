@@ -292,7 +292,7 @@ class ByParticipantController:
             heatmap normalizado entre 0 y 1
         """
         # 1. Crear matriz de ceros (histograma 2D)
-        heatmap = np.zeros((img_height, img_width), dtype=np.float32)
+        heatmap = np.zeros((img_height, img_width), dtype=np.float32) ###
 
         # 2. Marcar fixations
         for x, y in fixations:
