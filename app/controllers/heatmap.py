@@ -106,7 +106,8 @@ class HeatmapController:
         if dataset_select == 'disorder':
             class_column = 'main_class_Disorder'
             class_id_column = 'hex_color_Disorder' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'class_ratio_Disorder'
+            ratio_column = 'class_ratio_Disorder'
+            color_column = 'hex_color_Disorder'
  # Time	ImageIndex	ImageName	X	Y	Z	participante	pixelX	pixelY	class_id	
  # class_name	ratio	hex_color	main_class	class_id_grouped	class_ratio_grouped	hex_color_grouped
         elif dataset_select == 'grouped':
@@ -118,7 +119,8 @@ class HeatmapController:
         elif dataset_select == 'grouped_disorder':
             class_column = 'main_class_GroupDisorder'
             class_id_column = 'hex_color_GroupDisorder' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'class_ratio_GroupDisorder'
+            ratio_column = 'class_ratio_GroupDisorder'
+            color_column = 'hex_color_GroupDisorder'
 
         else:
             class_column = 'main_class'
@@ -241,9 +243,10 @@ class HeatmapController:
                         class_value = 'unknown'
 
                     # Obtener ratio promedio para esta clase
+                    # class_points = df_filtered[df_filtered[class_column] == class_value]
+                    # ratio_value = class_points['ratio'].mean() if len(class_points) > 0 else 1.0
                     class_points = df_filtered[df_filtered[class_column] == class_value]
-                    ratio_value = class_points['ratio'].mean() if len(class_points) > 0 else 1.0
-
+                    ratio_value = class_points[ratio_column].mean() if len(class_points) > 0 else 1.0
                     # Construir data_to_process con la columna correcta
                     data_row = {
                         'participante': participant_id,
@@ -297,11 +300,19 @@ class HeatmapController:
 
             # Obtener ratio de cada class en la imagen
             # Si la columna ratio no tiene datos válidos, usar 1.0 como default
-            if 'ratio' in df_filtered.columns:
+            # if 'ratio' in df_filtered.columns:
+            #     ratio_por_clase = (
+            #         df_filtered[[class_column, 'ratio']]
+            #         .dropna(subset=[class_column, 'ratio'])
+            #         .groupby(class_column)['ratio']
+            #         .mean()
+            #         .to_dict()
+            #     )
+            if ratio_column in df_filtered.columns:
                 ratio_por_clase = (
-                    df_filtered[[class_column, 'ratio']]
-                    .dropna(subset=[class_column, 'ratio'])
-                    .groupby(class_column)['ratio']
+                    df_filtered[[class_column, ratio_column]]
+                    .dropna(subset=[class_column, ratio_column])
+                    .groupby(class_column)[ratio_column]
                     .mean()
                     .to_dict()
                 )
