@@ -104,9 +104,9 @@ class HeatmapController:
 
         # Mapear dataset_select a las columnas correctas del CSV # REVISAR
         if dataset_select == 'disorder':
-            class_column = 'main_class'
-            class_id_column = 'class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'main_class_Disorder'
+            class_id_column = 'hex_color_Disorder' # Asumiendo que 'class_id' es el ID para main_class
+            color_column = 'class_ratio_Disorder'
  # Time	ImageIndex	ImageName	X	Y	Z	participante	pixelX	pixelY	class_id	
  # class_name	ratio	hex_color	main_class	class_id_grouped	class_ratio_grouped	hex_color_grouped
         elif dataset_select == 'grouped':
@@ -116,15 +116,16 @@ class HeatmapController:
             color_column = 'hex_color_grouped'
 
         elif dataset_select == 'grouped_disorder':
-            class_column = 'group_name'
-            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'main_class_GroupDisorder'
+            class_id_column = 'hex_color_GroupDisorder' # Asumiendo que 'class_id' es el ID para main_class
+            color_column = 'class_ratio_GroupDisorder'
 
         else:
             class_column = 'main_class'
             #class_id_column = 'group_class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             class_id_column = 'class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             color_column = 'hex_color'
+            ratio_column = 'ratio'
 
 
         print(f"  Using columns: class={class_column}, id={class_id_column}, color={color_column}")

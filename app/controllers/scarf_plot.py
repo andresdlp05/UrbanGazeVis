@@ -59,15 +59,21 @@ class ScarfPlotController:
         if self.data is None: return {'error': 'No data available'}
 
         # Configurar columnas
-        if dataset_select == 'disorder' or dataset_select == 'grouped':
+        if dataset_select == 'grouped':# or dataset_select == 'grouped':
             class_column = 'main_class_grouped'
             color_column = 'hex_color_grouped'
+        elif dataset_select == 'disorder':
+            class_column = 'main_class_Disorder'
+            color_column = 'hex_color_Disorder'
+            ratio_column = 'class_ratio_Disorder'
         elif dataset_select == 'grouped_disorder':
-            class_column = 'group_name'
-            color_column = 'hex_color'
+            class_column = 'main_class_GroupDisorder'
+            color_column = 'hex_color_GroupDisorder'
+            ratio_column = 'class_ratio_GroupDisorder'
         else:
             class_column = 'main_class'
             color_column = 'hex_color'
+            ratio_column = 'ratio'
 
         try:
             mask = self.data['ImageName'].astype(str) == str(image_id)
