@@ -498,16 +498,10 @@ def get_patches_for_participant(image_id, participant_id):
             })
         
         # Calcular parches con datos
-        patches_with_data = set()
         cols = 800 // patch_size  # 20 para 40x40
-        
-        for _, row in participant_data.iterrows():
-            patch_x = int(row['pixelX'] // patch_size)
-            patch_y = int((600 - row['pixelY']) // patch_size)  # Aplicar inversión Y
-            patch_index = patch_y * cols + patch_x
-            patches_with_data.add(patch_index)
-        
-        patches_list = sorted(list(patches_with_data))
+        patch_x = (participant_data['pixelX'] // patch_size).astype(int)
+        patch_y = ((600 - participant_data['pixelY']) // patch_size).astype(int)
+        patches_list = sorted((patch_y * cols + patch_x).unique().tolist())
         
         return jsonify({
             'patches': patches_list,
@@ -638,10 +632,10 @@ def get_temporal_sequence(image_id, participant_id):
         filtered_regions = []
         current_group = []
         
-        for _, row in participant_data.iterrows():
+        for row in participant_data[['main_class', 'Time', 'pixelX', 'pixelY']].to_dict('records'):
             current_region = str(row['main_class'])
             current_time = safe_json_value(row['Time'], 0.0)
-            
+
             # Agregar punto al grupo actual
             current_group.append({
                 'region': current_region,
@@ -938,7 +932,7 @@ def get_gaze_points_data(image_id, patch_size=40):
 
             # Procesar cada punto de gaze
             gaze_points = []
-            for _, row in participant_data.iterrows():
+            for row in participant_data[['pixelX', 'pixelY', 'Time', 'main_class']].to_dict('records'):
                 x = int(row['pixelX'])
                 y = int(row['pixelY'])
 
@@ -973,10 +967,9 @@ def get_gaze_points_data(image_id, patch_size=40):
         
         # Calcular estadísticas globales
         total_gaze_points = len(image_data)
-        active_patches = len(set([
-            min((int(row['pixelX']) // patch_size) * cols + min(int(row['pixelY']) // patch_size, rows - 1), total_patches - 1)
-            for _, row in image_data.iterrows()
-        ]))
+        _px = (image_data['pixelX'].astype(int) // patch_size).clip(0, cols - 1)
+        _py = (image_data['pixelY'].astype(int) // patch_size).clip(0, rows - 1)
+        active_patches = (_px * cols + _py).clip(0, total_patches - 1).nunique()
         
         response_data = {
             'participants': participants,
@@ -1633,7 +1626,7 @@ def get_area_analysis(image_id):
                 participant_id_int = int(participant_id)
                 min_time = participant_min_times.get(participant_id_int, 0.0)
 
-                for _, point in area_data.iterrows():
+                for point in area_data[['pixelX', 'pixelY', 'Time']].to_dict('records'):
                     px = point['pixelX']
                     py = point['pixelY']
 
@@ -2036,27 +2029,21 @@ def _process_regions_fallback(participant_data, MIN_STAY_DURATION, MAX_STAY_DURA
     filtered_regions = []
     current_group = []
     
-    for idx, row in participant_data.iterrows():
+    _records = participant_data[['main_class', 'Time', 'pixelX', 'pixelY']].to_dict('records')
+    for i, row in enumerate(_records):
         current_region = str(row['main_class'])
         current_time = safe_json_value(row['Time'], 0.0)
-        
+
         current_group.append({
             'region': current_region,
             'time': current_time,
             'pixelX': row['pixelX'],
             'pixelY': row['pixelY']
         })
-        
+
         # Si cambia de región o es el último punto
-        is_last = (idx == participant_data.index[-1])
-        next_region = current_region
-        if not is_last:
-            try:
-                next_idx = participant_data.index[participant_data.index.get_loc(idx) + 1]
-                next_row = participant_data.loc[next_idx]
-                next_region = str(next_row['main_class'])
-            except:
-                next_region = current_region
+        is_last = (i == len(_records) - 1)
+        next_region = current_region if is_last else str(_records[i + 1]['main_class'])
         
         if current_region != next_region or is_last:
             if len(current_group) > 1:

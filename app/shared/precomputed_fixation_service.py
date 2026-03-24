@@ -116,34 +116,30 @@ class PrecomputedFixationService:
             
             # Convertir a lista de diccionarios (formato compatible)
             fixations_list = []
-            
+
             if len(fixations_subset) > 0:
-                for index, fixation in fixations_subset.iterrows():
-                    # Get participant_id and image_id from index
+                patch_col_name = f'patch_{patch_size}'
+                subset_reset = fixations_subset.reset_index()
+                for rec in subset_reset.to_dict('records'):
                     if participant_id is not None:
-                        # Single participant query - get from parameters
                         fixation_participant_id = participant_id
                         fixation_image_id = image_id
                     else:
-                        # Multi-participant query - get from index
-                        fixation_image_id, fixation_participant_id = index
-                    
-                    patch_col_name = f'patch_{patch_size}'
-                    patch_index = fixation[patch_col_name] if patch_col_name in fixation.index else 0
+                        fixation_image_id = rec['image_id']
+                        fixation_participant_id = rec['participant_id']
 
-                    fixation_dict = {
+                    fixations_list.append({
                         'participante': fixation_participant_id,
                         'ImageName': fixation_image_id,
-                        'start_time': float(fixation['start_time']),
-                        'end_time': float(fixation['end_time']),
-                        'duration': float(fixation['duration']),
-                        'x_centroid': float(fixation['x_centroid']),
-                        'y_centroid': float(fixation['y_centroid']),
-                        'pointCount': int(fixation['point_count']),
-                        'patch_index': int(patch_index),
-                        'main_class': _safe_json_value(fixation['main_class'], 'unknown')
-                    }
-                    fixations_list.append(fixation_dict)
+                        'start_time': float(rec['start_time']),
+                        'end_time': float(rec['end_time']),
+                        'duration': float(rec['duration']),
+                        'x_centroid': float(rec['x_centroid']),
+                        'y_centroid': float(rec['y_centroid']),
+                        'pointCount': int(rec['point_count']),
+                        'patch_index': int(rec.get(patch_col_name, 0)),
+                        'main_class': _safe_json_value(rec['main_class'], 'unknown')
+                    })
             
             # Calcular estadísticas rápidas
             if participant_id is not None:

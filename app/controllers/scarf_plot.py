@@ -88,11 +88,10 @@ class ScarfPlotController:
             df_colores = filtered.dropna(subset=[class_column, color_column])
             df_colores = df_colores[df_colores[class_column] != ""]
             
-            dynamic_color_mapping = {}
-            for _, row in df_colores.iterrows():
-                # Limpiamos la clave antes de guardarla en el diccionario
-                clean_key = self.clean_class_name(row[class_column])
-                dynamic_color_mapping[clean_key] = row[color_column]
+            dynamic_color_mapping = {
+                self.clean_class_name(cls): color
+                for cls, color in zip(df_colores[class_column], df_colores[color_column])
+            }
                 
             print(f"DEBUG ScarfPlot Mapping: {len(dynamic_color_mapping)} colores mapeados.")
             # ==========================================================
@@ -186,9 +185,9 @@ class ScarfPlotController:
                     segments = []
                     curr = None
 
-                    for _, row in p_data.iterrows():
+                    for row in p_data[['Time', class_column]].to_dict('records'):
                         norm_time = ((row['Time'] - min_time) / tr) * 15000
-                        
+
                         # Limpiamos antes de buscar
                         cls = self.clean_class_name(row[class_column])
                         color = dynamic_color_mapping.get(cls, '#999999')
