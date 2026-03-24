@@ -8,6 +8,7 @@ import numpy as np
 import os
 import sys
 import time
+from app.shared.cache import cache
 
 # Agregar ruta para imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -441,6 +442,7 @@ def glyph():
     return render_template('glyph.html')
 
 @glyph_bp.route('/api/glyph/images')
+@cache.cached(timeout=3600)
 def get_available_images():
     """API para obtener imágenes disponibles."""
     try:
@@ -787,6 +789,7 @@ def get_temporal_sequence(image_id, participant_id):
         return jsonify({'error': f'Error getting temporal sequence: {str(e)}'})
 
 @glyph_bp.route('/api/glyph/complete-data-precalculated/<int:image_id>')
+@cache.cached(timeout=600, query_string=True)
 def get_complete_glyph_data_precalculated(image_id):
     """
     TEMPORALMENTE REDIRIGIDO - usar método corregido
@@ -1088,6 +1091,7 @@ def _generate_gaze_semantic_transitions(gaze_points, participant_id, image_id):
         }
 
 @glyph_bp.route('/api/glyph/complete-data/<int:image_id>')
+@cache.cached(timeout=600, query_string=True)
 def get_complete_glyph_data(image_id):
     """API ULTRA-OPTIMIZADA usando fijaciones pre-calculadas o gaze points."""
     try:
@@ -1457,6 +1461,7 @@ def get_complete_glyph_data(image_id):
         return jsonify({'error': f'Error getting complete glyph data: {str(e)}'})
 
 @glyph_bp.route('/api/glyph/area-analysis/<int:image_id>')
+@cache.cached(timeout=600, query_string=True)
 def get_area_analysis(image_id):
     """API para analizar un área específica seleccionada con brush D3."""
     print(f" ENDPOINT CALLED: area-analysis for image {image_id}")

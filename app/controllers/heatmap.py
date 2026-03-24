@@ -10,6 +10,7 @@ import os
 import json
 import joblib
 from app.services.fixation_detection_ivt import get_fixations_ivt
+from app.shared.cache import cache
 
 # Importar servicio compartido de datos
 try:
@@ -477,6 +478,7 @@ heatmap_controller = HeatmapController()
 
 # Endpoints
 @heatmap_bp.route('/api/heatmap/<int:image_id>', methods=['GET'])
+@cache.cached(timeout=600, query_string=True)
 def get_heatmap(image_id):
     """Obtiene datos de heatmap para una imagen"""
     top_n = request.args.get('top_n', 15, type=int)

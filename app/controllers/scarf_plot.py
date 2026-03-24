@@ -9,6 +9,7 @@ import numpy as np
 from flask import Blueprint, jsonify, request
 import os
 from app.services.fixation_detection_ivt import get_fixations_ivt
+from app.shared.cache import cache
 
 try:
     from app.shared.data_service import get_data_service
@@ -231,6 +232,7 @@ class ScarfPlotController:
 scarf_controller = ScarfPlotController()
 
 @scarf_bp.route('/api/scarf-plot/<int:image_id>', methods=['GET'])
+@cache.cached(timeout=600, query_string=True)
 def get_scarf_plot(image_id):
     participant_id = request.args.get('participant_id', type=int)
     data_type = request.args.get('data_type', 'gaze').lower()
