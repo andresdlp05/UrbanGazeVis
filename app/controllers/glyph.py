@@ -915,8 +915,9 @@ def get_gaze_points_data(image_id, patch_size=40):
         # Datos de transiciones por participante
         transition_data = []
 
+        grouped = image_data.groupby('participante', sort=False)
         for participant_id in participants:
-            participant_data = image_data[image_data['participante'] == participant_id].copy()
+            participant_data = grouped.get_group(participant_id).copy()
 
             if len(participant_data) == 0:
                 continue
@@ -1146,8 +1147,9 @@ def get_complete_glyph_data(image_id):
         participants_data = {}
         all_patches_visited = set()
 
+        grouped = image_data.groupby('participante', sort=False)
         for participant_id in participants:
-            participant_data = image_data[image_data['participante'] == participant_id].sort_values('Time').copy()
+            participant_data = grouped.get_group(participant_id).sort_values('Time').copy()
 
             # Guardar los valores originales ANTES de normalizar (para calcular duración)
             original_time_min = participant_data['Time'].min() if len(participant_data) > 0 else 0.0
@@ -1490,22 +1492,21 @@ def get_area_analysis(image_id):
         participants = sorted(image_data['participante'].unique())
         participants_data = {}
 
-        # 🕒 IMPORTANTE: Calcular tiempo mínimo POR PARTICIPANTE
+        # 🕒 IMPORTANTE: Calcular tiempo mínimo POR PARTICIPANTE (vectorizado, una sola pasada)
         # (normalizar tiempos relativos a cuando cada participante comenzó a ver esta imagen)
         # NOTA: NO se aplica offset de 4 segundos - los datos ya contienen tiempos correctos
-        participant_min_times = {}
+        _min_series = pd.to_numeric(image_data['Time'], errors='coerce').groupby(image_data['participante']).min()
+        participant_min_times = {
+            int(p): float(v) if pd.notna(v) else 0.0
+            for p, v in _min_series.items()
+        }
         for participant_id in participants:
-            participant_data = image_data[image_data['participante'] == participant_id]
-            if len(participant_data) > 0:
-                # Usar el tiempo mínimo de ESTA IMAGEN para ESTE PARTICIPANTE
-                # Esto normaliza a 0 segundos cuando el participante comenzó a ver esta imagen
-                min_time = pd.to_numeric(participant_data['Time'], errors='coerce').min()
-                participant_min_times[int(participant_id)] = float(min_time) if pd.notna(min_time) else 0.0
-                print(f"   ⏰ Participante {participant_id}: tiempo de inicio imagen = {participant_min_times[int(participant_id)]:.3f}s")
+            print(f"   ⏰ Participante {participant_id}: tiempo de inicio imagen = {participant_min_times.get(int(participant_id), 0.0):.3f}s")
 
         # Procesar cada participante
+        grouped = image_data.groupby('participante', sort=False)
         for participant_id in participants:
-            participant_data = image_data[image_data['participante'] == participant_id].copy()
+            participant_data = grouped.get_group(participant_id).copy()
 
             if len(participant_data) == 0:
                 participants_data[int(participant_id)] = {
@@ -1703,17 +1704,15 @@ def get_area_analysis(image_id):
         except Exception as e:
             print(f" Error loading evaluation data: {e}")
         
-        # 🕒 CALCULAR TIEMPOS MÍNIMOS POR PARTICIPANTE (image_min_times)
+        # 🕒 CALCULAR TIEMPOS MÍNIMOS POR PARTICIPANTE (image_min_times) — vectorizado
         image_min_times = {}
         try:
             print(f" Calculando image_min_times para imagen {image_id}")
             image_data = glyph_controller.data[glyph_controller.data['ImageName'] == image_id]
-            for participant_id in image_data['participante'].unique():
-                participant_image_data = image_data[image_data['participante'] == participant_id]
-                if len(participant_image_data) > 0:
-                    min_time = pd.to_numeric(participant_image_data['Time'], errors='coerce').min()
-                    image_min_times[int(participant_id)] = float(min_time) if pd.notna(min_time) else 0.0
-                    print(f"  ⏰ Participante {participant_id}: tiempo mínimo = {image_min_times[int(participant_id)]:.3f}s")
+            _min_s = pd.to_numeric(image_data['Time'], errors='coerce').groupby(image_data['participante']).min()
+            image_min_times = {int(p): float(v) if pd.notna(v) else 0.0 for p, v in _min_s.items()}
+            for p, t in image_min_times.items():
+                print(f"  ⏰ Participante {p}: tiempo mínimo = {t:.3f}s")
         except Exception as e:
             print(f" Error calculando image_min_times: {e}")
 
