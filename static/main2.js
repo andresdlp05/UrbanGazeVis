@@ -5946,7 +5946,7 @@ function highlightParticipantInScarf(participantId) {
 // Función principal: mostrar puntos para un segmento del scarf plot
 function showPointsForScarfSegment(segment) {
     console.log('Showing points for scarf segment:', segment);
-
+    window._scarfSelecting = true; 
     // Guardar el segmento actual para usar su color
     currentScarfSegment = segment;
     setClearButtonEnabled(true);
@@ -5956,17 +5956,23 @@ function showPointsForScarfSegment(segment) {
     const partSelect = document.getElementById('part-select');
     if (partSelect) {
         partSelect.value = selectedPart;
+    window._scarfSelecting = false;
     }
 
     // Convertir tiempos de milisegundos a segundos si es necesario
-    const startSec = start_time / 1000;
-    const endSec = end_time / 1000;
+    const startSec = segment.start_time_real < 100 
+        ? segment.start_time_real 
+        : segment.start_time_real / 1000;
+    const endSec = segment.end_time_real < 100 
+        ? segment.end_time_real 
+        : segment.end_time_real / 1000;
 
     console.log(`Filtering for participant ${participant}, time range: ${startSec.toFixed(2)}s - ${endSec.toFixed(2)}s (${start_time}ms - ${end_time}ms)`);
 
     // Filtrar gaze points
     const filteredGaze = allGazePointsWithParticipant.filter(point => {
-        if (point.participante !== participant) return false;
+        // if (point.participante !== participant) return false;
+        if (Number(point.participante) !== Number(participant)) return false;
         // Los tiempos pueden estar en segundos o milisegundos, probar ambos
         const timeInSeconds = point.time < 100 ? point.time : point.time / 1000;
         return timeInSeconds >= startSec && timeInSeconds <= endSec;
@@ -6307,32 +6313,38 @@ document.getElementById("img-select").addEventListener("change", function() {
     const selectedImage = this.value;
     const partSelect = document.getElementById("part-select");
     const participantScores = getParticipantScoresForImage(selectedImage);
-    if (partSelect.value === "all") {
-        if (selectedImage === "all") {
-            populateSelect("part-select", allParticipants, "part", true, null);
+const previousParticipant = partSelect.value; // guardar selección actual
+
+    if (selectedImage === "all") {
+        populateSelect("part-select", allParticipants, "part", true, null);
+        // restaurar selección si sigue siendo válida
+        if (allParticipants.map(String).includes(previousParticipant)) {
+            partSelect.value = previousParticipant;
         }
-        else {
-            // Fetch participants from backend (same source as heatmap/scarf plot)
-            fetch(`/api/participants/${selectedImage}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.participants && Array.isArray(data.participants)) {
-                        const parts = data.participants.map(String);
-                        console.log(`Participants for image ${selectedImage}:`, parts);
-                        populateSelect("part-select", parts, "part", true, participantScores);
-                    } else {
-                        console.warn('No participants found for image', selectedImage);
-                        populateSelect("part-select", allParticipants, "part", true, participantScores);
+    } else {
+        // Fetch participants from backend (same source as heatmap/scarf plot)
+        fetch(`/api/participants/${selectedImage}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.participants && Array.isArray(data.participants)) {
+                    const parts = data.participants.map(String);
+                    console.log(`Participants for image ${selectedImage}:`, parts);
+                    populateSelect("part-select", parts, "part", true, participantScores);
+                    // restaurar selección si el participante existe en la nueva imagen
+                    if (parts.includes(previousParticipant)) {
+                        partSelect.value = previousParticipant;
                     }
-                })
-                .catch(error => {
-                    console.error('Error fetching participants:', error);
-                    // Fallback to allParticipants if fetch fails
+                } else {
+                    console.warn('No participants found for image', selectedImage);
                     populateSelect("part-select", allParticipants, "part", true, participantScores);
-                });
-        }
-        partSelect.value = "all";
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching participants:', error);
+                populateSelect("part-select", allParticipants, "part", true, participantScores);
+            });
     }
+
     selectedImg = this.value;
     if (areaAnalysisAbortController) {
         areaAnalysisAbortController.abort();
@@ -6505,7 +6517,10 @@ document.getElementById("part-select").addEventListener("change", function() {
     highlightParticipantInScarf(selectedPart);
 
     // Actualizar overlay si hay tipos seleccionados
-    if (currentOverlayTypes && currentOverlayTypes.length > 0) {
+    // if (currentOverlayTypes && currentOverlayTypes.length > 0) {
+    //     updateOverlay();
+    // }
+    if (currentOverlayTypes && currentOverlayTypes.length > 0 && !window._scarfSelecting) {
         updateOverlay();
     }
 });
