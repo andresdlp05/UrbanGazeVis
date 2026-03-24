@@ -5,6 +5,7 @@ from app.controllers.scarf_plot import *
 from app.controllers.by_participant import *
 from app.controllers.glyph import glyph_bp
 from app.services.fixation_detection_ivt import get_fixations_ivt
+from app.shared.ivt_cache_service import get_ivt_cache_service
 import random
 import json
 import os
@@ -18,20 +19,6 @@ app = Flask(__name__)
 app.register_blueprint(glyph_bp)
 app.register_blueprint(by_participant_bp)
 
-def load_gaze_data():
-    try:
-        data_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'df_final1.csv')
-        return pd.read_csv(data_path)
-    except Exception as e:
-        print(f"Error loading gaze data: {e}")
-        return None
-
-def create_imagename_to_index_mapping():
-    """Crea un mapeo de ImageName a ImageIndex para búsquedas rápidas"""
-    if gaze_data is None:
-        return {}
-    mapping = gaze_data[['ImageName', 'ImageIndex']].drop_duplicates().set_index('ImageName')['ImageIndex'].to_dict()
-    return mapping
 
 def get_image_index_from_name(image_name):
     """Convierte ImageName a ImageIndex"""
@@ -43,107 +30,6 @@ def get_image_index_from_name(image_name):
         if len(result) > 0:
             return int(result.iloc[0])
     return None
-
-def load_ivt_cache():
-    try:
-        data_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'ivt_precalculated.csv')
-        if os.path.exists(data_path):
-            return pd.read_csv(data_path)
-        else:
-            print(f"Warning: IVT cache file not found at {data_path}")
-            return None
-    except Exception as e:
-        print(f"Error loading IVT cache: {e}")
-        return None
-
-def load_hololens_data():
-    try:
-        data_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'data_hololens.json')
-        if os.path.exists(data_path):
-            with open(data_path, 'r') as f:
-                return json.loads(f.read())
-        print(f"Warning: Hololens data file not found at {data_path}")
-        return {}
-    except Exception as e:
-        print(f"Error loading Hololens data: {e}")
-        return {}
-
-def build_dataframe_cache_by_image(df, image_column='ImageName'):
-    cache = {}
-    if df is None or image_column not in df.columns:
-        return cache
-
-    try:
-        grouped = df.groupby(image_column, sort=False)
-        for image_id, group in grouped:
-            try:
-                key = int(image_id)
-            except (TypeError, ValueError):
-                continue
-            cache[key] = group
-    except Exception as e:
-        print(f"Warning: Could not build dataframe cache by image: {e}")
-    return cache
-
-def build_min_time_cache(df, time_column):
-    cache = {}
-    required_cols = {'ImageName', 'participante', time_column}
-    if df is None or not required_cols.issubset(df.columns):
-        return cache
-
-    try:
-        min_series = (
-            df.dropna(subset=['ImageName', 'participante', time_column])
-              .groupby(['ImageName', 'participante'])[time_column]
-              .min()
-        )
-
-        for (image_id, participant_id), min_time in min_series.items():
-            try:
-                image_key = int(image_id)
-                participant_key = int(participant_id)
-                min_time_val = float(min_time)
-            except (TypeError, ValueError):
-                continue
-
-            image_cache = cache.setdefault(image_key, {})
-            image_cache[participant_key] = min_time_val
-    except Exception as e:
-        print(f"Warning: Could not build min time cache ({time_column}): {e}")
-
-    return cache
-
-def build_participant_scores_cache(full_data):
-    cache = {}
-    if not full_data:
-        return cache
-
-    for image_id_str, image_data in full_data.items():
-        try:
-            image_id = int(image_id_str)
-        except (TypeError, ValueError):
-            continue
-
-        per_participant = {}
-        for score_info in image_data.get('score_participant', []):
-            participant = score_info.get('participant')
-            if participant is None:
-                continue
-            try:
-                participant_id = int(participant)
-            except (TypeError, ValueError):
-                continue
-
-            per_participant[participant_id] = {
-                'score': score_info.get('score'),
-                'age': score_info.get('age'),
-                'gender': score_info.get('gender'),
-                'state': score_info.get('state')
-            }
-
-        cache[image_id] = per_participant
-
-    return cache
 
 def get_combined_min_times(image_id, participant_id=None):
     combined = {}
@@ -182,15 +68,16 @@ def safe_clean_records(records):
 
     return records
 
-gaze_data = load_gaze_data()
-ivt_cache = load_ivt_cache()
-hololens_data_cache = load_hololens_data()
-gaze_data_by_image = build_dataframe_cache_by_image(gaze_data)
-ivt_cache_by_image = build_dataframe_cache_by_image(ivt_cache)
-gaze_min_time_cache = build_min_time_cache(gaze_data, 'Time')
-ivt_min_time_cache = build_min_time_cache(ivt_cache, 'start')
-participant_scores_cache = build_participant_scores_cache(hololens_data_cache)
-imagename_to_index = create_imagename_to_index_mapping()
+_svc = get_ivt_cache_service()
+gaze_data                = _svc.gaze_data
+ivt_cache                = _svc.ivt_cache
+hololens_data_cache      = _svc.hololens_data
+gaze_data_by_image       = _svc.gaze_data_by_image
+ivt_cache_by_image       = _svc.ivt_cache_by_image
+gaze_min_time_cache      = _svc.gaze_min_time_cache
+ivt_min_time_cache       = _svc.ivt_min_time_cache
+participant_scores_cache = _svc.participant_scores
+imagename_to_index       = _svc.imagename_to_index
 
 @app.route('/api/heatmap/<int:image_id>', methods=['GET'])
 def get_heatmap(image_id):
