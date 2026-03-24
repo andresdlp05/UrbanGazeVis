@@ -60,9 +60,9 @@ class DataService:
         # Mapeo de dataset a archivo CSV
         dataset_files = {
             'main_class': 'static/data/df_final1.csv',
-            'grouped': 'static/data/FINAL_Group.csv',
-            'disorder': 'static/data/FINAL_20kDisorder.csv',
-            'grouped_disorder': 'static/data/FINAL_GroupDisorder.csv'
+            'grouped': 'static/data/df_final1.csv',
+            'disorder': 'static/data/df_final1.csv',
+            'grouped_disorder': 'static/data/df_final1.csv'
         }
 
         # Validar dataset_select

@@ -104,25 +104,30 @@ class HeatmapController:
 
         # Mapear dataset_select a las columnas correctas del CSV # REVISAR
         if dataset_select == 'disorder':
-            class_column = 'main_class'
-            class_id_column = 'class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
- 
+            class_column = 'main_class_Disorder'
+            class_id_column = 'hex_color_Disorder' # Asumiendo que 'class_id' es el ID para main_class
+            ratio_column = 'class_ratio_Disorder'
+            color_column = 'hex_color_Disorder'
+ # Time	ImageIndex	ImageName	X	Y	Z	participante	pixelX	pixelY	class_id	
+ # class_name	ratio	hex_color	main_class	class_id_grouped	class_ratio_grouped	hex_color_grouped
         elif dataset_select == 'grouped':
-            class_column = 'group'
-            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'main_class_grouped'
+            class_id_column = 'main_class_grouped'  
+            ratio_column = 'class_ratio_grouped'
+            color_column = 'hex_color_grouped'
 
         elif dataset_select == 'grouped_disorder':
-            class_column = 'group_name'
-            class_id_column = 'group_class_id' # Asumiendo que 'class_id' es el ID para main_class
-            color_column = 'hex_color'
+            class_column = 'main_class_GroupDisorder'
+            class_id_column = 'hex_color_GroupDisorder' # Asumiendo que 'class_id' es el ID para main_class
+            ratio_column = 'class_ratio_GroupDisorder'
+            color_column = 'hex_color_GroupDisorder'
 
         else:
             class_column = 'main_class'
             #class_id_column = 'group_class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             class_id_column = 'class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             color_column = 'hex_color'
+            ratio_column = 'ratio'
 
 
         print(f"  Using columns: class={class_column}, id={class_id_column}, color={color_column}")
@@ -238,9 +243,10 @@ class HeatmapController:
                         class_value = 'unknown'
 
                     # Obtener ratio promedio para esta clase
+                    # class_points = df_filtered[df_filtered[class_column] == class_value]
+                    # ratio_value = class_points['ratio'].mean() if len(class_points) > 0 else 1.0
                     class_points = df_filtered[df_filtered[class_column] == class_value]
-                    ratio_value = class_points['ratio'].mean() if len(class_points) > 0 else 1.0
-
+                    ratio_value = class_points[ratio_column].mean() if len(class_points) > 0 else 1.0
                     # Construir data_to_process con la columna correcta
                     data_row = {
                         'participante': participant_id,
@@ -294,11 +300,19 @@ class HeatmapController:
 
             # Obtener ratio de cada class en la imagen
             # Si la columna ratio no tiene datos válidos, usar 1.0 como default
-            if 'ratio' in df_filtered.columns:
+            # if 'ratio' in df_filtered.columns:
+            #     ratio_por_clase = (
+            #         df_filtered[[class_column, 'ratio']]
+            #         .dropna(subset=[class_column, 'ratio'])
+            #         .groupby(class_column)['ratio']
+            #         .mean()
+            #         .to_dict()
+            #     )
+            if ratio_column in df_filtered.columns:
                 ratio_por_clase = (
-                    df_filtered[[class_column, 'ratio']]
-                    .dropna(subset=[class_column, 'ratio'])
-                    .groupby(class_column)['ratio']
+                    df_filtered[[class_column, ratio_column]]
+                    .dropna(subset=[class_column, ratio_column])
+                    .groupby(class_column)[ratio_column]
                     .mean()
                     .to_dict()
                 )
@@ -376,10 +390,38 @@ class HeatmapController:
 
             # Crear matriz: filas=class_column, columnas=participantes
             # Usar 'density' para modo 'attention' o 'time_por_clase' para modo 'time'
-            print('POR IMAGEN CLASE HEATMAP')
-            print(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
+            total_por_part = por_participante_clase.groupby('participante')['time_por_clase'].sum().to_dict()
+            
+            def calcular_morh(row):
+                total = total_por_part.get(row['participante'], 1)
+                if total == 0: return 0.0
+                return (row['time_por_clase'] / total) * 100.0
 
-            matrix_values = 'density' if mode == 'attention' else 'time_por_clase'
+            # MoRH: % de atención que este participante le dio a esta clase
+            por_participante_clase_top['morh'] = por_participante_clase_top.apply(calcular_morh, axis=1)
+            
+            # MoR: % del área física que ocupa la clase (lo multiplicamos por 100 si viene en decimales)
+            por_participante_clase_top['mor'] = por_participante_clase_top['class_ratio'].apply(
+                lambda x: float(x) * 100.0 if float(x) <= 1.0 else float(x)
+            )
+            # =========================================================
+
+            # Crear matriz: filas=class_column, columnas=participantes
+            print('POR IMAGEN CLASE HEATMAP')
+            # print(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
+
+            # SELECCIÓN DINÁMICA DEL MODO DE VISUALIZACIÓN
+            if mode == 'attention':
+                matrix_values = 'density'
+            elif mode == 'time':
+                matrix_values = 'time_por_clase'
+            elif mode == 'morh':
+                matrix_values = 'morh'
+            elif mode == 'mor':
+                matrix_values = 'mor'
+            else:
+                matrix_values = 'density'
+
             matriz = por_participante_clase_top.pivot_table(
                 index=class_column,
                 columns='participante',
@@ -387,7 +429,6 @@ class HeatmapController:
                 aggfunc='first',
                 fill_value=0.0
             )
-
             # Asegurar que todas las clases top estén presentes
             matriz = matriz.reindex(top_clases, fill_value=0.0)
 
@@ -444,7 +485,17 @@ def get_heatmap(image_id):
     top_n = request.args.get('top_n', 15, type=int)
     data_type = request.args.get('data_type', 'gaze').lower()
     dataset_select = request.args.get('dataset_select', 'main_class').lower()
-    print(f"[DEBUG API] get_heatmap called: image_id={image_id}, data_type={data_type}, dataset_select={dataset_select}")
-    print(f"[DEBUG API] request.args = {dict(request.args)}")
-    data = heatmap_controller.get_heatmap_data(image_id, top_n, data_type, dataset_select)
+    
+    mode = request.args.get('mode', 'attention').lower()
+    
+    print(f"[DEBUG API] get_heatmap: image={image_id}, data={data_type}, dataset={dataset_select}, mode={mode}")
+    
+    data = heatmap_controller.get_heatmap_data(
+        image_id=image_id, 
+        top_n_clases=top_n, 
+        data_type=data_type, 
+        dataset_select=dataset_select, 
+        mode=mode
+    )
     return jsonify(data)
+
