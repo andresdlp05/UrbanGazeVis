@@ -8,7 +8,6 @@ import numpy as np
 from flask import Blueprint, jsonify, request
 import os
 import json
-import joblib
 from app.services.fixation_detection_ivt import get_fixations_ivt
 from app.shared.cache import cache
 
@@ -105,31 +104,25 @@ class HeatmapController:
 
         if dataset_select == 'disorder':
             class_column = 'main_class_Disorder'
-            class_id_column = 'hex_color_Disorder'
             ratio_column = 'class_ratio_Disorder'
             color_column = 'hex_color_Disorder'
 
         elif dataset_select == 'grouped':
             class_column = 'main_class_grouped'
-            class_id_column = 'main_class_grouped'  
             ratio_column = 'class_ratio_grouped'
             color_column = 'hex_color_grouped'
 
         elif dataset_select == 'grouped_disorder':
             class_column = 'main_class_GroupDisorder'
-            class_id_column = 'hex_color_GroupDisorder' 
             ratio_column = 'class_ratio_GroupDisorder'
             color_column = 'hex_color_GroupDisorder'
 
         else:
             class_column = 'main_class'
-            #class_id_column = 'group_class_id' # Asumiendo que 'group_class_id' es el ID para grupos
-            class_id_column = 'class_id' # Asumiendo que 'group_class_id' es el ID para grupos
             color_column = 'hex_color'
             ratio_column = 'ratio'
 
-
-        print(f"  Using columns: class={class_column}, id={class_id_column}, color={color_column}")
+        print(f"  Using columns: class={class_column}, color={color_column}")
 
         try:
             # Obtener los 10 participantes oficiales
@@ -318,38 +311,6 @@ class HeatmapController:
                 .sort_values(by='total_time_global', ascending=False)
             )
             top_clases = [str(c).strip() for c in suma_total_tiempo.head(top_n_clases)[class_column].tolist()]
-
-            # --- CÁLCULO DE RATIO DINÁMICO ---
-            if mode == 'attention':
-                # Cargar el pkl solo si es necesario
-                segmentation_array = None
-                pkl_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'images', 'images', 'datos_seg', f"{image_id}.pkl")
-
-                for clase in top_clases:
-                    if clase not in ratio_por_clase:
-                        print(f"ADVERTENCIA: Ratio no encontrado para la clase '{clase}'. Calculando dinámicamente...")
-                        if segmentation_array is None:
-                            if os.path.exists(pkl_path):
-                                try:
-                                    segmentation_array = joblib.load(pkl_path)
-                                except Exception as e:
-                                    print(f"ERROR: No se pudo cargar {pkl_path}: {e}")
-                                    break
-                            else:
-                                print(f"ERROR: No se encontró el archivo de segmentación: {pkl_path}")
-                                break
-                        
-                        # Encontrar el class_id para esta `clase` (que puede ser un group_name)
-                        class_id_rows = df_filtered[df_filtered[class_column] == clase][class_id_column]
-                        if not class_id_rows.empty:
-                            cid = class_id_rows.iloc[0]
-                            class_pixels = np.sum(segmentation_array == cid)
-                            total_pixels = segmentation_array.size
-                            calculated_ratio = class_pixels / total_pixels if total_pixels > 0 else 0
-                            ratio_por_clase[clase] = calculated_ratio
-                            print(f"✓ Ratio calculado para '{clase}' (ID: {cid}): {calculated_ratio:.4f}")
-                        else:
-                            print(f"ERROR: No se pudo encontrar un class_id para la clase '{clase}'")
 
 
             # Calcular densidad ponderada
