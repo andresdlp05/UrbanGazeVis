@@ -390,10 +390,38 @@ class HeatmapController:
 
             # Crear matriz: filas=class_column, columnas=participantes
             # Usar 'density' para modo 'attention' o 'time_por_clase' para modo 'time'
-            print('POR IMAGEN CLASE HEATMAP')
-            print(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
+            total_por_part = por_participante_clase.groupby('participante')['time_por_clase'].sum().to_dict()
+            
+            def calcular_morh(row):
+                total = total_por_part.get(row['participante'], 1)
+                if total == 0: return 0.0
+                return (row['time_por_clase'] / total) * 100.0
 
-            matrix_values = 'density' if mode == 'attention' else 'time_por_clase'
+            # MoRH: % de atención que este participante le dio a esta clase
+            por_participante_clase_top['morh'] = por_participante_clase_top.apply(calcular_morh, axis=1)
+            
+            # MoR: % del área física que ocupa la clase (lo multiplicamos por 100 si viene en decimales)
+            por_participante_clase_top['mor'] = por_participante_clase_top['class_ratio'].apply(
+                lambda x: float(x) * 100.0 if float(x) <= 1.0 else float(x)
+            )
+            # =========================================================
+
+            # Crear matriz: filas=class_column, columnas=participantes
+            print('POR IMAGEN CLASE HEATMAP')
+            # print(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
+
+            # SELECCIÓN DINÁMICA DEL MODO DE VISUALIZACIÓN
+            if mode == 'attention':
+                matrix_values = 'density'
+            elif mode == 'time':
+                matrix_values = 'time_por_clase'
+            elif mode == 'morh':
+                matrix_values = 'morh'
+            elif mode == 'mor':
+                matrix_values = 'mor'
+            else:
+                matrix_values = 'density'
+
             matriz = por_participante_clase_top.pivot_table(
                 index=class_column,
                 columns='participante',
@@ -401,7 +429,6 @@ class HeatmapController:
                 aggfunc='first',
                 fill_value=0.0
             )
-
             # Asegurar que todas las clases top estén presentes
             matriz = matriz.reindex(top_clases, fill_value=0.0)
 
@@ -459,12 +486,10 @@ def get_heatmap(image_id):
     data_type = request.args.get('data_type', 'gaze').lower()
     dataset_select = request.args.get('dataset_select', 'main_class').lower()
     
-    # 1. Leer el parámetro mode que envía Javascript
     mode = request.args.get('mode', 'attention').lower()
     
     print(f"[DEBUG API] get_heatmap: image={image_id}, data={data_type}, dataset={dataset_select}, mode={mode}")
     
-    # 2. Enviarlo a la función
     data = heatmap_controller.get_heatmap_data(
         image_id=image_id, 
         top_n_clases=top_n, 
@@ -473,3 +498,4 @@ def get_heatmap(image_id):
         mode=mode
     )
     return jsonify(data)
+

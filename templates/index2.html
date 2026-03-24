@@ -139,11 +139,17 @@ fill="currentColor" viewBox="0 0 24 24" >
          <div class="h-[calc(10%)] w-full flex flex-col " id="heatmap-plot-controls">
             <div class="btn btn-xs btn-ghost pointer-events-none h-1/2">Mode:</div>
       
-            <select id="heatmap-mode-sel">
+            <!-- <select id="heatmap-mode-sel">
                <option value="attention" selected>Attention Intensity</option>
                <option value="time">Total attention</option>
-            </select>
+            </select> -->
 
+            <select id="heatmap-mode-sel" class="form-select form-select-sm">
+               <option value="attention">Attention Intensity (Density)</option>
+               <option value="time">Total Attention (Time)</option>
+               <!-- <option value="morh">MoRH (Attention % per Participant)</option>
+               <option value="mor">MoR (Physical Area %)</option> -->
+            </select>
 
             <div> </div>
          </div>
