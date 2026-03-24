@@ -195,7 +195,7 @@ class ScarfPlotController:
                         if curr is None or curr['class'] != cls:
                             if curr: segments.append(curr)
                             #curr = {'class': cls, 'start_time': float(norm_time), 'end_time': float(norm_time), 'points': 1, 'color': color}
-                            curr = {'class': cls, 'start_time': float(norm_time), 'end_time': float(norm_time), 'start_time_real': float(row['Time']), 'end_time_real': float(row['Time']), 'points': 1, 'color': color}
+                            curr = {'class': cls, 'start_time': float(norm_time), 'end_time': float(norm_time), 'start_time_real': float(row['Time']- min_time), 'end_time_real': float(row['Time']- min_time), 'points': 1, 'color': color}
 
                         else:
                             # curr['end_time'] = float(norm_time)

@@ -5956,7 +5956,6 @@ function showPointsForScarfSegment(segment) {
     const partSelect = document.getElementById('part-select');
     if (partSelect) {
         partSelect.value = selectedPart;
-    window._scarfSelecting = false;
     }
 
     // Convertir tiempos de milisegundos a segundos si es necesario
@@ -6061,6 +6060,8 @@ function showPointsForScarfSegment(segment) {
         console.warn('No points found in this time segment');
         removeBoundingBoxOverlay();
     }
+    window._scarfSelecting = false;
+
 }
 
 // ===== FIN DE FUNCIONES PARA SCARF PLOT =====
