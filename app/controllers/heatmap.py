@@ -171,16 +171,13 @@ class HeatmapController:
                     try:
                         service = get_precomputed_service()
                         if service and service.fixations_df is not None:
-                            # Filtrar fijaciones pre-calculadas para esta imagen y participantes válidos
-                            precomputed_fixations = service.fixations_df[
-                                (service.fixations_df['ImageName'] == image_id) &
-                                (service.fixations_df['participante'].isin(valid_participants))
-                            ].copy()
-
-                            if len(precomputed_fixations) > 0:
-                                print(f"✓ Usando {len(precomputed_fixations)} fijaciones PRE-CALCULADAS")
-                                # Convertir a formato esperado
-                                fixations_list = precomputed_fixations.to_dict('records')
+                            result = service.get_fixations_fast(image_id)
+                            all_fix = result.get('fixations', [])
+                            valid_set = set(valid_participants)
+                            filtered_fix = [f for f in all_fix if f.get('participante') in valid_set]
+                            if filtered_fix:
+                                print(f"✓ Usando {len(filtered_fix)} fijaciones PRE-CALCULADAS")
+                                fixations_list = filtered_fix
                                 use_precomputed = True
                     except Exception as e:
                         print(f" Error usando fixations pre-calculadas: {e}")

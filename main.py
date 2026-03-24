@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask_caching import Cache
 
 from app.controllers.heatmap import *
 from app.controllers.scarf_plot import *
@@ -13,7 +14,13 @@ import math
 import pandas as pd
 import numpy as np
 
+cache = Cache(config={
+    'CACHE_TYPE': 'SimpleCache',   # en memoria, sin dependencias externas
+    'CACHE_DEFAULT_TIMEOUT': 300   # 5 minutos por defecto
+})
+
 app = Flask(__name__)
+cache.init_app(app)
 
 # Registrar blueprints
 app.register_blueprint(glyph_bp)

@@ -27,7 +27,7 @@ class PrecomputedFixationService:
     def __init__(self, csv_path=None):
         self.csv_path = csv_path or os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            'static', 'data', 'fixation.csv'
+            'static', 'data', 'precalculated_fixations.csv'
         )
         self.fixations_df = None
         self._load_fixations()
@@ -66,8 +66,8 @@ class PrecomputedFixationService:
                     self.fixations_df[col] = self.fixations_df[col].astype('int16')
 
         except FileNotFoundError:
-            print(f"Archivo fixation.csv no encontrado: {self.csv_path}")
-            print("Ejecute 'python precompute_fixations.py' para generar fixation.csv")
+            print(f"Archivo precalculated_fixations.csv no encontrado: {self.csv_path}")
+            print("Ejecute 'python precompute_fixations.py' para generar precalculated_fixations.csv")
             self.fixations_df = None
         except Exception as e:
             print(f"Error cargando fijaciones pre-calculadas: {e}")
