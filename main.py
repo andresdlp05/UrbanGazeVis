@@ -172,7 +172,7 @@ def main():
                 'id': key,
                 'avg_hololens': full_data[key].get('avg_hololens', 0),
                 'avg_pp2': full_data[key].get('avg_pp2', 0),
-                'participants': sorted(full_data[key]['score_participant'], key=lambda x:x['score'], reverse=True)
+                'participants': sorted(full_data[key]['score_participant'], key=lambda x:x['participant'], reverse=True)
             })
 
     data = sorted(data, key=lambda x: x['avg_hololens'], reverse=True)

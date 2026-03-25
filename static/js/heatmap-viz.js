@@ -785,8 +785,8 @@ function highlightHeatmapAreaEntities(areaData) {
         .attr('id', 'heatmap-area-frame-layer')
         .style('pointer-events', 'none');
 
-    const PARTICIPANT_STROKE = '#f97316';
-    const PARTICIPANT_FILL = 'rgba(249, 115, 22, 0.08)';
+    const PARTICIPANT_STROKE = '#241103';
+    const PARTICIPANT_FILL = 'rgba(97, 88, 82, 0.08)';
     const CLASS_STROKE = '#0ea5e9';
     const CLASS_FILL = 'rgba(14, 165, 233, 0.08)';
 

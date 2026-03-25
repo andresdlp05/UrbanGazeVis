@@ -383,7 +383,7 @@ class HeatmapController:
             for p in valid_participants:
                 if p not in matriz.columns:
                     matriz[p] = 0.0
-            matriz = matriz[sorted(valid_participants)]
+            matriz = matriz[sorted(valid_participants, reverse=True)]
 
             print(f"[HEATMAP DEBUG] mode={mode}, top_clases count={len(top_clases)}, top_clases={top_clases}")
             print(f"[HEATMAP DEBUG] matriz shape={matriz.shape}")
@@ -407,7 +407,7 @@ class HeatmapController:
             return {
                 'status': 'success',
                 'image_id': int(image_id),
-                'participants': sorted(valid_participants),
+                'participants': sorted(valid_participants, reverse=True),
                 'classes': top_clases,
                 'matrix_raw': matriz.values.tolist(),
                 'matrix_normalized': matriz_norm.values.tolist(),

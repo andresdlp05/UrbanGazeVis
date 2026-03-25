@@ -121,38 +121,9 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
         });
         console.log('Images sorted by score (descending):', sortedValues.map(v => `${v}:${imageScores[v]?.toFixed(1)}`));
     }
-    // En Controls > Participant: ordenar de mayor a menor
+    // En Controls > Participant: ordenar numérico ascendente (igual que backend)
     if (labelPrefix === 'part' && selectId === 'part-select') {
-        const toNumericOrNull = (value) => {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) ? parsed : null;
-        };
-
-        if (scoresByValue && scoresByValue.size > 0) {
-            sortedValues.sort((a, b) => {
-                const scoreA = Number(scoresByValue.get(String(a)) ?? -Infinity);
-                const scoreB = Number(scoresByValue.get(String(b)) ?? -Infinity);
-                if (scoreA !== scoreB) {
-                    return scoreB - scoreA; // mayor score primero
-                }
-
-                const numA = toNumericOrNull(a);
-                const numB = toNumericOrNull(b);
-                if (numA !== null && numB !== null) {
-                    return numB - numA;
-                }
-                return String(b).localeCompare(String(a));
-            });
-        } else {
-            sortedValues.sort((a, b) => {
-                const numA = toNumericOrNull(a);
-                const numB = toNumericOrNull(b);
-                if (numA !== null && numB !== null) {
-                    return numB - numA;
-                }
-                return String(b).localeCompare(String(a));
-            });
-        }
+        sortedValues.sort((a, b) => Number(b) - Number(a));
     }
 
     sortedValues.forEach(v => {

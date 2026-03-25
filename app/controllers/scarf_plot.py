@@ -45,7 +45,7 @@ class ScarfPlotController:
         image_key = str(image_id)
         if image_key in self.scores_data:
             score_entries = self.scores_data[image_key].get('score_participant', [])
-            return sorted(list(set(entry['participant'] for entry in score_entries)))
+            return sorted(list(set(entry['participant'] for entry in score_entries)), reverse=True)
         return []
 
     # NUEVA FUNCIÓN DE LIMPIEZA
@@ -119,9 +119,9 @@ class ScarfPlotController:
                     if p_id not in fixations_by_participant:
                         fixations_by_participant[p_id] = []
                     fixations_by_participant[p_id].append(fix)
-                participants = sorted(fixations_by_participant.keys())
+                participants = sorted(fixations_by_participant.keys(), reverse=True)
             else:
-                participants = sorted(filtered['participante'].unique())
+                participants = sorted(filtered['participante'].unique(), reverse=True)
                 fixations_by_participant = None
 
             scarf_data = []

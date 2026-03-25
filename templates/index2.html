@@ -9,7 +9,7 @@
    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@latest/css/boxicons.min.css">
    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-   <script src="{{url_for('static', filename='reorder.min.js')}}"></script>
+   <script src="{{url_for('static', filename='js/reorder.min.js')}}"></script>
    <!-- Scripts de CDN se cargarán al final del body para garantizar que D3 esté disponible -->
    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
    <link href='https://cdn.boxicons.com/3.0.6/fonts/basic/boxicons.min.css' rel='stylesheet'>
@@ -304,14 +304,10 @@ function waitForD3Libraries() {
         return;
     }
 
-    // D3 y jQuery están disponibles, cargar glyph_brush.js dinámicamente
-    const glyphScript = document.createElement('script');
-    glyphScript.src = "{{ url_for('static', filename='glyph_brush2.js') }}?v=" + new Date().getTime();
-    glyphScript.onload = function() {
-        // Cuando glyph_brush cargue, cargar main2.js (globals + RadialGlyph)
-        const mainScript = document.createElement('script');
-        mainScript.src = "{{ url_for('static', filename='main2.js') }}?v=" + new Date().getTime();
-        mainScript.onload = function() {
+    // D3 y jQuery están disponibles, cargar main2.js (globals + RadialGlyph)
+    const mainScript = document.createElement('script');
+    mainScript.src = "{{ url_for('static', filename='main2.js') }}?v=" + new Date().getTime();
+    mainScript.onload = function() {
             const overlayScript = document.createElement('script');
             overlayScript.src = "{{ url_for('static', filename='js/overlay.js') }}?v=" + new Date().getTime();
             overlayScript.onload = function() {
@@ -352,8 +348,6 @@ function waitForD3Libraries() {
             document.body.appendChild(overlayScript);
         };
         document.body.appendChild(mainScript);
-    };
-    document.body.appendChild(glyphScript);
 }
 
 // Iniciar cuando document esté listo
