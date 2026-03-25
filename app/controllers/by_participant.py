@@ -454,39 +454,44 @@ class ByParticipantController:
                 return {'error': f'No embedding data for participant {participant_id}'}
 
             embeddings = np.array(embeddings, dtype=float)
-            scores = np.array(scores, dtype=float)
-
-            # Intentar obtener resultado de t-SNE del caché
-            """
+            scores = np.array(scores, dtype=float)            # Intentar obtener resultado de t-SNE del cache (disco/memoria)
             tsne_cache = get_tsne_cache() if get_tsne_cache else None
             cached_result = None
             if tsne_cache:
                 cached_result = tsne_cache.get(participant_id, embeddings)
 
-            if cached_result:
-                # Usar resultado cacheado
+            cached_image_names = None
+            cached_scores = None
+
+            if cached_result and isinstance(cached_result, dict) and 'x' in cached_result and 'y' in cached_result:
                 projection = np.column_stack([cached_result['x'], cached_result['y']])
-                print(f"[t-SNE LOGGING] ✅ Usando caché para participante {participant_id}")
+                cached_image_names = cached_result.get('image_names')
+                cached_scores = cached_result.get('scores')
+                print(f"[t-SNE LOGGING] Cache HIT para participante {participant_id}")
             else:
-                # Calcular t-SNE
-                print(f"[t-SNE LOGGING] Computing t-SNE projection for participant {participant_id} with {len(embeddings)} images...")
-                tsne = TSNE(n_components=2, init='pca', random_state=42)#, perplexity=min(30, len(embeddings) - 1))
+                print(f"[t-SNE LOGGING] Computing t-SNE projection for participante {participant_id} with {len(embeddings)} images...")
+                tsne = TSNE(n_components=2, init='pca', random_state=42)
+                # tsne = umap.UMAP(random_state=42)
+                # tsne = MDS(n_components=2,dissimilarity="euclidean",random_state=42,metric=True)
                 projection = tsne.fit_transform(embeddings)
 
-                # Cachear el resultado
                 if tsne_cache:
                     tsne_cache.set(participant_id, embeddings, {
                         'x': projection[:, 0],
-                        'y': projection[:, 1]
+                        'y': projection[:, 1],
+                        'image_names': image_names,
+                        'scores': scores.tolist()
                     })
-            """
-            tsne = TSNE(n_components=2, init='pca', random_state=42)#, perplexity=min(30, len(embeddings) - 1))
-            # tsne = umap.UMAP(random_state=42)
-            # tsne = MDS(n_components=2,dissimilarity="euclidean",random_state=42,metric=True)
 
-            projection = tsne.fit_transform(embeddings)
-            print('RESULTADO TSNE')
-            print(projection)
+            if (
+                isinstance(cached_image_names, list) and
+                isinstance(cached_scores, list) and
+                len(cached_image_names) == len(projection) and
+                len(cached_scores) == len(projection)
+            ):
+                image_names = [int(x) for x in cached_image_names]
+                scores = np.array(cached_scores, dtype=float)
+
             # Preparar datos para retornar
             projection_data = []
             for i, (x, y) in enumerate(projection):
@@ -552,3 +557,4 @@ def get_saliency_coverage_for_participant(participant_id):
     """Obtiene datos de saliency coverage para un participante"""
     data = by_participant_controller.get_saliency_coverage_data(participant_id)
     return jsonify(data)
+

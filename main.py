@@ -73,6 +73,29 @@ def safe_clean_records(records):
 
     return records
 
+_ASSET_FILES = [
+    os.path.join('static', 'styles.css'),
+    os.path.join('static', 'main2.js'),
+    os.path.join('static', 'js', 'overlay.js'),
+    os.path.join('static', 'js', 'segmentation.js'),
+    os.path.join('static', 'js', 'scarf.js'),
+    os.path.join('static', 'js', 'heatmap-viz.js'),
+    os.path.join('static', 'js', 'charts.js'),
+    os.path.join('static', 'js', 'brush.js'),
+    os.path.join('static', 'js', 'controls.js'),
+    os.path.join('static', 'js', 'init.js')
+]
+
+def get_assets_version():
+    """Version token for static assets based on latest mtime."""
+    mtimes = []
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for rel_path in _ASSET_FILES:
+        abs_path = os.path.join(base_dir, rel_path)
+        if os.path.exists(abs_path):
+            mtimes.append(int(os.path.getmtime(abs_path)))
+    return max(mtimes) if mtimes else 1
+
 _svc = get_ivt_cache_service()
 gaze_data                = _svc.gaze_data
 ivt_cache                = _svc.ivt_cache
@@ -196,7 +219,8 @@ def main():
         data=data,
         all_images=unique_images,
         all_participants=unique_participants,
-        img_part_index=img_part_index
+        img_part_index=img_part_index,
+        asset_version=get_assets_version()
     )
 
 @app.route('/api/gaze-data/<int:image_id>', methods=['GET'])
@@ -286,6 +310,10 @@ def analyze_area(image_id):
         if data_type not in ['fixations', 'gaze']:
             data_type = 'fixations'
 
+        include_all_data = str(request.args.get('include_all_data', 'false')).lower() in ['1', 'true', 'yes']
+        need_gaze_points = include_all_data or data_type == 'gaze'
+        need_fixations = include_all_data or data_type == 'fixations'
+
         # Obtener participante seleccionado (opcional)
         participant_id = request.args.get('participant_id', None)
         if participant_id is not None:
@@ -346,102 +374,97 @@ def analyze_area(image_id):
                 'error': f'No gaze data found for image {image_id}'
             })
 
-        # SIEMPRE procesar AMBOS tipos de datos para poder usarlos en overlay independientemente
-        # Obtener gaze points (VECTORIZADO - mucho más rápido que iterrows)
-        t_step = time.time()
-        print(f"Processing GAZE POINTS (vectorized)...")
+        # Procesar solo lo necesario (o ambos si include_all_data=true)
+        total_gaze_points = 0
+        area_gaze_points = []
+        gaze_records = None
 
-        # Convertir a diccionarios de manera vectorizada
-        # Solo incluir campos esenciales para gaze points (sin 'start' que confunde con fixations)
-        base_gaze_columns = ['participante', 'ImageIndex', 'ImageName', 'pixelX', 'pixelY', 'Time']
-        optional_semantic_columns = [
-            col for col in ['main_class', 'group', 'group_name', 'class_id', 'group_class_id']
-            if col in image_gaze_data.columns
-        ]
-        gaze_records = image_gaze_data[base_gaze_columns + optional_semantic_columns].copy()
+        if need_gaze_points:
+            t_step = time.time()
+            print(f"Processing GAZE POINTS (vectorized)...")
 
-        # Renombrar columnas para que coincidan con el formato esperado
-        gaze_records = gaze_records.rename(columns={
-            'pixelX': 'x_centroid',
-            'pixelY': 'y_centroid'
-        })
+            base_gaze_columns = ['participante', 'ImageIndex', 'ImageName', 'pixelX', 'pixelY', 'Time']
+            optional_semantic_columns = [
+                col for col in ['main_class', 'group', 'group_name', 'class_id', 'group_class_id']
+                if col in image_gaze_data.columns
+            ]
+            gaze_records = image_gaze_data[base_gaze_columns + optional_semantic_columns].copy()
+            gaze_records = gaze_records.rename(columns={
+                'pixelX': 'x_centroid',
+                'pixelY': 'y_centroid'
+            })
 
-        # Asignar campos necesarios
-        gaze_records['pointCount'] = 1
-        gaze_records['ImageName'] = gaze_records['ImageName'].astype('int')
-        gaze_records['participante'] = gaze_records['participante'].fillna(0).astype('int')
-        gaze_records['ImageIndex'] = gaze_records['ImageIndex'].astype('int')
-        total_gaze_points = len(gaze_records)
+            gaze_records['pointCount'] = 1
+            gaze_records['ImageName'] = gaze_records['ImageName'].astype('int')
+            gaze_records['participante'] = gaze_records['participante'].fillna(0).astype('int')
+            gaze_records['ImageIndex'] = gaze_records['ImageIndex'].astype('int')
+            total_gaze_points = len(gaze_records)
 
-        # Filtrar por área (rectangular o circular) usando operaciones vectorizadas
-        if shape == 'circle':
-            gaze_dx = gaze_records['x_centroid'] - center_x
-            gaze_dy = gaze_records['y_centroid'] - center_y
-            area_mask = (gaze_dx * gaze_dx + gaze_dy * gaze_dy) <= (radius * radius)
+            if shape == 'circle':
+                gaze_dx = gaze_records['x_centroid'] - center_x
+                gaze_dy = gaze_records['y_centroid'] - center_y
+                area_mask = (gaze_dx * gaze_dx + gaze_dy * gaze_dy) <= (radius * radius)
+            else:
+                area_mask = (
+                    (gaze_records['x_centroid'] >= x) &
+                    (gaze_records['x_centroid'] <= x + width) &
+                    (gaze_records['y_centroid'] >= y) &
+                    (gaze_records['y_centroid'] <= y + height)
+                )
+            area_gaze_points = gaze_records[area_mask].to_dict('records')
+
+            timings['gaze_processing'] = (time.time() - t_step) * 1000
+            print(f"Total gaze points in image: {total_gaze_points}")
+            print(f"Gaze points in area: {len(area_gaze_points)}")
+            print(f"[TIMING] Gaze processing: {timings['gaze_processing']:.1f}ms")
         else:
-            area_mask = (
-                (gaze_records['x_centroid'] >= x) &
-                (gaze_records['x_centroid'] <= x + width) &
-                (gaze_records['y_centroid'] >= y) &
-                (gaze_records['y_centroid'] <= y + height)
-            )
-        area_gaze_records = gaze_records[area_mask]
-        area_gaze_points = area_gaze_records.to_dict('records')
+            timings['gaze_processing'] = 0.0
 
-        timings['gaze_processing'] = (time.time() - t_step) * 1000
-
-        print(f"Total gaze points in image: {total_gaze_points}")
-        print(f"Gaze points in area: {len(area_gaze_points)}")
-        print(f"[TIMING] Gaze processing: {timings['gaze_processing']:.1f}ms")
-
-        # Obtener fixations desde cache precalculado (VECTORIZADO)
-        t_step = time.time()
-        print(f"Processing FIXATIONS (from precalculated cache - vectorized)...")
         total_fixations = 0
         area_fixations = []
-        image_fixations = None
 
-        if ivt_cache is not None:
-            if image_id in ivt_cache_by_image:
-                image_fixations = ivt_cache_by_image[image_id]
-            else:
-                image_fixations = ivt_cache[ivt_cache['ImageName'] == image_id]
+        if need_fixations:
+            t_step = time.time()
+            print(f"Processing FIXATIONS (from precalculated cache - vectorized)...")
 
-            # Filtrar por participante si se especificó
-            if participant_id is not None:
-                image_fixations = image_fixations[image_fixations['participante'] == participant_id]
-                print(f"Filtering fixations by participant: {participant_id}")
-
-            image_fixations = image_fixations.copy()
-            total_fixations = len(image_fixations)
-
-            if total_fixations > 0:
-                if 'class_names' not in image_fixations.columns:
-                    image_fixations['class_names'] = [[] for _ in range(total_fixations)]
-
-                # Filtrar por área (rectangular o circular) usando Pandas (vectorizado)
-                if shape == 'circle':
-                    fix_dx = image_fixations['x_centroid'] - center_x
-                    fix_dy = image_fixations['y_centroid'] - center_y
-                    fix_area_mask = (fix_dx * fix_dx + fix_dy * fix_dy) <= (radius * radius)
+            if ivt_cache is not None:
+                if image_id in ivt_cache_by_image:
+                    image_fixations = ivt_cache_by_image[image_id]
                 else:
-                    fix_area_mask = (
-                        (image_fixations['x_centroid'] >= x) &
-                        (image_fixations['x_centroid'] <= x + width) &
-                        (image_fixations['y_centroid'] >= y) &
-                        (image_fixations['y_centroid'] <= y + height)
-                    )
-                area_fixations = image_fixations[fix_area_mask].to_dict('records')
+                    image_fixations = ivt_cache[ivt_cache['ImageName'] == image_id]
+
+                if participant_id is not None:
+                    image_fixations = image_fixations[image_fixations['participante'] == participant_id]
+                    print(f"Filtering fixations by participant: {participant_id}")
+
+                image_fixations = image_fixations.copy()
+                total_fixations = len(image_fixations)
+
+                if total_fixations > 0:
+                    if 'class_names' not in image_fixations.columns:
+                        image_fixations['class_names'] = [[] for _ in range(total_fixations)]
+
+                    if shape == 'circle':
+                        fix_dx = image_fixations['x_centroid'] - center_x
+                        fix_dy = image_fixations['y_centroid'] - center_y
+                        fix_area_mask = (fix_dx * fix_dx + fix_dy * fix_dy) <= (radius * radius)
+                    else:
+                        fix_area_mask = (
+                            (image_fixations['x_centroid'] >= x) &
+                            (image_fixations['x_centroid'] <= x + width) &
+                            (image_fixations['y_centroid'] >= y) &
+                            (image_fixations['y_centroid'] <= y + height)
+                        )
+                    area_fixations = image_fixations[fix_area_mask].to_dict('records')
+            else:
+                print("Warning: IVT cache not available, returning empty fixations")
+
+            timings['fixations_processing'] = (time.time() - t_step) * 1000
+            print(f"Total fixations in image: {total_fixations}")
+            print(f"Fixations in area: {len(area_fixations)}")
+            print(f"[TIMING] Fixations processing: {timings['fixations_processing']:.1f}ms")
         else:
-            print("Warning: IVT cache not available, returning empty fixations")
-            total_fixations = 0
-            area_fixations = []
-
-        timings['fixations_processing'] = (time.time() - t_step) * 1000
-
-        print(f"Total fixations in image: {total_fixations}")
-        print(f"Fixations in area: {len(area_fixations)}")
-        print(f"[TIMING] Fixations processing: {timings['fixations_processing']:.1f}ms")
+            timings['fixations_processing'] = 0.0
 
         # Normalizar tiempos para que comiencen en 0 (PER PARTICIPANTE, PER IMAGE)
         # IMPORTANTE: Cada participante ve cada imagen durante exactamente 15 segundos
@@ -450,7 +473,7 @@ def analyze_area(image_id):
         participant_min_times = get_combined_min_times(image_id, participant_id=participant_id)
 
         # Fallback defensivo si algún participante no estuviera en caché
-        if not participant_min_times and len(gaze_records) > 0:
+        if not participant_min_times and gaze_records is not None and len(gaze_records) > 0:
             fallback_series = gaze_records.groupby('participante')['Time'].min()
             participant_min_times = {int(pid): float(val) for pid, val in fallback_series.items()}
 
@@ -476,8 +499,8 @@ def analyze_area(image_id):
                     print(f"Warning: Could not normalize time for {time_field}: {e}, keeping original value")
             return data_list
 
-        area_gaze_points = normalize_times_per_participant(area_gaze_points, 'Time')
-
+        if need_gaze_points:
+            area_gaze_points = normalize_times_per_participant(area_gaze_points, 'Time')
         # Normalizar fixations (POR PARTICIPANTE - start, end)
         def normalize_fixations_per_participant(fix_list):
             for fix in fix_list:
@@ -494,7 +517,8 @@ def analyze_area(image_id):
                         print(f"Warning: Could not normalize fixation times: {e}, keeping original values")
             return fix_list
 
-        area_fixations = normalize_fixations_per_participant(area_fixations)
+        if need_fixations:
+            area_fixations = normalize_fixations_per_participant(area_fixations)
 
         timings['time_normalization'] = (time.time() - t_step) * 1000
 
@@ -568,4 +592,5 @@ def analyze_area(image_id):
         return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 400
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8081)
+    debug_mode = str(os.environ.get('FLASK_DEBUG', '0')).lower() in ['1', 'true', 'yes']
+    app.run(debug=debug_mode, host='0.0.0.0', port=8081)

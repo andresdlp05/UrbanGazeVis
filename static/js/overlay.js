@@ -557,7 +557,7 @@ function loadAllPointsForImage(imageId) {
     const dataSpaceHeight = 600;
     console.log(`Using data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
 
-    fetch(`/api/analyze-area/${imageId}?data_type=${currentDataType}`, {
+    fetch(`/api/analyze-area/${imageId}?data_type=${currentDataType}&include_all_data=true`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

@@ -4,12 +4,12 @@
    <meta charset="UTF-8">
    <meta name="viewport" content="width=device-width, initial-scale=1.0">
    <title> Visualization </title>
-   <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
+   <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}?v={{ asset_version }}">
    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/boxicons@latest/css/boxicons.min.css">
    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-   <script src="{{url_for('static', filename='js/reorder.min.js')}}"></script>
+   <script src="{{url_for('static', filename='js/reorder.min.js')}}?v={{ asset_version }}"></script>
    <!-- Scripts de CDN se cargarán al final del body para garantizar que D3 esté disponible -->
    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
    <link href='https://cdn.boxicons.com/3.0.6/fonts/basic/boxicons.min.css' rel='stylesheet'>
@@ -323,31 +323,31 @@ function waitForD3Libraries() {
 
     // D3 y jQuery están disponibles, cargar main2.js (globals + RadialGlyph)
     const mainScript = document.createElement('script');
-    mainScript.src = "{{ url_for('static', filename='main2.js') }}?v=" + new Date().getTime();
+    mainScript.src = "{{ url_for('static', filename='main2.js') }}?v={{ asset_version }}";
     mainScript.onload = function() {
             const overlayScript = document.createElement('script');
-            overlayScript.src = "{{ url_for('static', filename='js/overlay.js') }}?v=" + new Date().getTime();
+            overlayScript.src = "{{ url_for('static', filename='js/overlay.js') }}?v={{ asset_version }}";
             overlayScript.onload = function() {
                 const segmentationScript = document.createElement('script');
-                segmentationScript.src = "{{ url_for('static', filename='js/segmentation.js') }}?v=" + new Date().getTime();
+                segmentationScript.src = "{{ url_for('static', filename='js/segmentation.js') }}?v={{ asset_version }}";
                 segmentationScript.onload = function() {
                     const scarfScript = document.createElement('script');
-                    scarfScript.src = "{{ url_for('static', filename='js/scarf.js') }}?v=" + new Date().getTime();
+                    scarfScript.src = "{{ url_for('static', filename='js/scarf.js') }}?v={{ asset_version }}";
                     scarfScript.onload = function() {
                         const heatmapVizScript = document.createElement('script');
-                        heatmapVizScript.src = "{{ url_for('static', filename='js/heatmap-viz.js') }}?v=" + new Date().getTime();
+                        heatmapVizScript.src = "{{ url_for('static', filename='js/heatmap-viz.js') }}?v={{ asset_version }}";
                         heatmapVizScript.onload = function() {
                             const chartsScript = document.createElement('script');
-                            chartsScript.src = "{{ url_for('static', filename='js/charts.js') }}?v=" + new Date().getTime();
+                            chartsScript.src = "{{ url_for('static', filename='js/charts.js') }}?v={{ asset_version }}";
                             chartsScript.onload = function() {
                                 const brushScript = document.createElement('script');
-                                brushScript.src = "{{ url_for('static', filename='js/brush.js') }}?v=" + new Date().getTime();
+                                brushScript.src = "{{ url_for('static', filename='js/brush.js') }}?v={{ asset_version }}";
                                 brushScript.onload = function() {
                                     const controlsScript = document.createElement('script');
-                                    controlsScript.src = "{{ url_for('static', filename='js/controls.js') }}?v=" + new Date().getTime();
+                                    controlsScript.src = "{{ url_for('static', filename='js/controls.js') }}?v={{ asset_version }}";
                                     controlsScript.onload = function() {
                                         const initScript = document.createElement('script');
-                                        initScript.src = "{{ url_for('static', filename='js/init.js') }}?v=" + new Date().getTime();
+                                        initScript.src = "{{ url_for('static', filename='js/init.js') }}?v={{ asset_version }}";
                                         document.body.appendChild(initScript);
                                     };
                                     document.body.appendChild(controlsScript);
@@ -376,3 +376,5 @@ if (document.readyState === 'loading') {
 </script>
 </body>
 </html>
+
+

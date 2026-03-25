@@ -73,14 +73,17 @@ class TSNECacheService:
         """
         if participant_id in self.cache:
             cached = self.cache[participant_id]
-            # El caché precalculado no tiene hash, solo el resultado
-            # Por eso retornamos directamente si existe
-            if isinstance(cached, dict) and ('x' in cached or 'result' in cached):
-                print(f"TSNECache HIT: Usando cache para participante {participant_id}")
-                return cached
-            # Si es un dict con estructura antigua (con hash)
-            elif isinstance(cached, dict) and 'result' in cached:
-                return cached.get('result')
+            if isinstance(cached, dict):
+                # Formato esperado: resultado directo con x/y
+                if 'x' in cached and 'y' in cached:
+                    print(f"TSNECache HIT: Usando cache para participante {participant_id}")
+                    return cached
+                # Compatibilidad con estructura envuelta {'result': {...}}
+                if 'result' in cached and isinstance(cached['result'], dict):
+                    nested = cached['result']
+                    if 'x' in nested and 'y' in nested:
+                        print(f"TSNECache HIT (legacy): Usando cache para participante {participant_id}")
+                        return nested
 
         return None
 
@@ -102,7 +105,7 @@ class TSNECacheService:
             }
 
             # Guardar en caché en memoria
-            self.cache[participant_id] = cache_entry
+            self.cache[participant_id] = cache_entry['result']
 
             # Guardar en disco
             self._ensure_cache_dir()
