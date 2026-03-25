@@ -296,6 +296,7 @@ function showPointsForScarfSegment(segment) {
     window._scarfSelecting = true;
     // Guardar el segmento actual para usar su color
     currentScarfSegment = segment;
+    window.selectedClass = segment?.class || null;
     setClearButtonEnabled(true);
 
     const { start_time, end_time, participant } = segment;
@@ -356,52 +357,20 @@ function showPointsForScarfSegment(segment) {
     // Resaltar en scarf plot
     highlightScarfSegment(segment);
 
+    // Cross-filter: resaltar clase en segmentación al hacer click en segmento temporal.
+    if (typeof updateHighlightsGlobal === 'function') {
+        updateHighlightsGlobal();
+    } else {
+        if (currentImageBlendPercent <= 0 && typeof setImageBlendPercentage === 'function') {
+            setImageBlendPercentage(50);
+        }
+        if (typeof syncSegmentationLayerImage === 'function') {
+            syncSegmentationLayerImage();
+        }
+    }
+
     // Resaltar columna de participante en heatmap
     highlightParticipantColumnInHeatmap(participant);
-
-    // Calcular bounding box de los puntos filtrados
-    const allPoints = currentDataType === 'gaze' ? filteredGaze : filteredFixations;
-
-    if (allPoints.length > 0) {
-        // Obtener dimensiones de la imagen para escalar
-        const img = document.getElementById('sel-img-view');
-        const imgRect = img.getBoundingClientRect();
-        const DATA_WIDTH = 800;
-        const DATA_HEIGHT = 600;
-        const scaleX = imgRect.width / DATA_WIDTH;
-        const scaleY = imgRect.height / DATA_HEIGHT;
-
-        // Calcular min/max en espacio de datos
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-
-        allPoints.forEach(point => {
-            minX = Math.min(minX, point.x);
-            maxX = Math.max(maxX, point.x);
-            minY = Math.min(minY, point.y);
-            maxY = Math.max(maxY, point.y);
-        });
-
-        // Agregar padding (en espacio de datos)
-        const padding = 30;
-        minX = Math.max(0, minX - padding);
-        maxX = Math.min(DATA_WIDTH, maxX + padding);
-        minY = Math.max(0, minY - padding);
-        maxY = Math.min(DATA_HEIGHT, maxY + padding);
-
-        // Escalar a espacio de pantalla e invertir Y
-        const boundingBox = {
-            x: minX * scaleX,
-            y: (DATA_HEIGHT - maxY) * scaleY,  // Invertir Y
-            width: (maxX - minX) * scaleX,
-            height: (maxY - minY) * scaleY
-        };
-
-        scarfLog('Bounding box:', boundingBox);
-
-        // Crear overlay con bounding box
-        createBoundingBoxOverlay(boundingBox);
-    }
 
     if (currentDataType === 'gaze' && filteredGaze.length > 0) {
         visualizeGazePointsOverlay();
@@ -409,7 +378,6 @@ function showPointsForScarfSegment(segment) {
         visualizeFixationPointsOverlay();
     } else if (filteredGaze.length === 0 && filteredFixations.length === 0) {
         console.warn('No points found in this time segment');
-        removeBoundingBoxOverlay();
     }
     window._scarfSelecting = false;
 
