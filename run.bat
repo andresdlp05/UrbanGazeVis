@@ -43,7 +43,7 @@ if errorlevel 1 (
 )
 
 REM Verificar que existan los archivos de datos
-if not exist "static\data\df_final1.csv" (
+if not exist "static\data\csv\df_final1.csv" (
     echo.
     echo [ERROR] Archivo df_final1.csv no encontrado
     echo Por favor descarga los datos necesarios en static\data\
@@ -52,7 +52,7 @@ if not exist "static\data\df_final1.csv" (
     exit /b 1
 )
 
-if not exist "static\data\ivt_precalculated.csv" (
+if not exist "static\data\csv\ivt_precalculated.csv" (
     echo.
     echo [ERROR] Archivo ivt_precalculated.csv no encontrado
     echo Por favor descarga los datos necesarios en static\data\

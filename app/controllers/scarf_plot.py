@@ -1,6 +1,6 @@
-"""
+﻿"""
 Controller para Scarf Plot Visualization
-Maneja la visualización de la distribución temporal de gaze y fixations
+Maneja la visualizaciÃ³n de la distribuciÃ³n temporal de gaze y fixations
 """
 
 import pandas as pd
@@ -22,7 +22,7 @@ except ImportError as e:
 scarf_bp = Blueprint('scarf_plot', __name__)
 
 class ScarfPlotController:
-    def __init__(self, csv_path='static/data/df_final1.csv'):
+    def __init__(self, csv_path='static/data/csv/df_final1.csv'):
         self.csv_path = csv_path
         self.data = None
         self.scores_data = None
@@ -49,12 +49,12 @@ class ScarfPlotController:
             return sorted(list(set(entry['participant'] for entry in score_entries)), reverse=True)
         return []
 
-    # NUEVA FUNCIÓN DE LIMPIEZA
+    # NUEVA FUNCIÃ“N DE LIMPIEZA
     def clean_class_name(self, name):
         """Limpia el nombre de la clase para que coincida en el diccionario"""
         if pd.isna(name):
             return "unknown"
-        # Convierte a string, corta en el primer ';' y pasa a minúsculas
+        # Convierte a string, corta en el primer ';' y pasa a minÃºsculas
         return str(name).split(';')[0].strip().lower()
 
     def get_scarf_plot_data(self, image_id, participant_id=None, data_type='gaze', dataset_select='main_class', image_name=None):
@@ -245,3 +245,4 @@ def get_scarf_plot(image_id):
 @scarf_bp.route('/api/scarf-plot-colors', methods=['GET'])
 def get_color_mapping():
     return jsonify(scarf_controller.color_mapping)
+

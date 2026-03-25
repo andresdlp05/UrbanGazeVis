@@ -1,6 +1,6 @@
-"""
-DataService - Servicio singleton para gestionar múltiples datasets
-Permite cargar diferentes CSVs según el tipo de segmentación seleccionado
+﻿"""
+DataService - Servicio singleton para gestionar mÃºltiples datasets
+Permite cargar diferentes CSVs segÃºn el tipo de segmentaciÃ³n seleccionado
 """
 
 import pandas as pd
@@ -9,7 +9,7 @@ import json
 from app.shared.logging_utils import debug_log, error_log
 
 class DataService:
-    """Singleton para gestionar múltiples datasets de eye tracking"""
+    """Singleton para gestionar mÃºltiples datasets de eye tracking"""
 
     _instance = None
     _initialized = False
@@ -22,20 +22,20 @@ class DataService:
     def __init__(self):
         if not self._initialized:
             self.base_path = os.path.join(os.path.dirname(__file__), '..', '..')
-            self.data_cache = {}  # Cache lógico por dataset_select
-            self.file_cache = {}  # Cache físico por ruta CSV (evita duplicar DataFrames)
+            self.data_cache = {}  # Cache lÃ³gico por dataset_select
+            self.file_cache = {}  # Cache fÃ­sico por ruta CSV (evita duplicar DataFrames)
             self.scores_data = None
             self._load_scores()
             self._initialized = True
 
     def _load_scores(self):
-        """Carga scores de participantes (común para todos los datasets)"""
+        """Carga scores de participantes (comÃºn para todos los datasets)"""
         try:
-            scores_path = os.path.join(self.base_path, 'static', 'data', 'data_hololens.json')
+            scores_path = os.path.join(self.base_path, 'static', 'data', 'json', 'data_hololens.json')
             if os.path.exists(scores_path):
                 with open(scores_path, 'r') as f:
                     self.scores_data = json.load(f)
-                debug_log(f"DataService: Scores cargados ({len(self.scores_data)} imágenes)")
+                debug_log(f"DataService: Scores cargados ({len(self.scores_data)} imÃ¡genes)")
             else:
                 error_log(f"ADVERTENCIA: DataService: Archivo de scores no encontrado en {scores_path}")
         except Exception as e:
@@ -51,7 +51,7 @@ class DataService:
 
     def get_data_by_dataset(self, dataset_select='main_class'):
         """
-        Carga y retorna el DataFrame correcto según el dataset seleccionado
+        Carga y retorna el DataFrame correcto segÃºn el dataset seleccionado
 
         Args:
             dataset_select: 'main_class', 'grouped', 'disorder', o 'grouped_disorder'
@@ -61,10 +61,10 @@ class DataService:
         """
         # Mapeo de dataset a archivo CSV
         dataset_files = {
-            'main_class': 'static/data/df_final1.csv',
-            'grouped': 'static/data/df_final1.csv',
-            'disorder': 'static/data/df_final1.csv',
-            'grouped_disorder': 'static/data/df_final1.csv'
+            'main_class': 'static/data/csv/df_final1.csv',
+            'grouped': 'static/data/csv/df_final1.csv',
+            'disorder': 'static/data/csv/df_final1.csv',
+            'grouped_disorder': 'static/data/csv/df_final1.csv'
         }
 
         # Validar dataset_select
@@ -72,7 +72,7 @@ class DataService:
             error_log(f"ADVERTENCIA: Dataset '{dataset_select}' no reconocido, usando 'main_class'")
             dataset_select = 'main_class'
 
-        # Verificar si ya está en cache
+        # Verificar si ya estÃ¡ en cache
         if dataset_select in self.data_cache:
             debug_log(f"DataService: Usando cache para dataset '{dataset_select}'")
             return self.data_cache[dataset_select]
@@ -81,7 +81,7 @@ class DataService:
         csv_path = dataset_files[dataset_select]
         full_path = os.path.join(self.base_path, csv_path)
 
-        # Reusar DataFrame si ya está cargado para este archivo físico
+        # Reusar DataFrame si ya estÃ¡ cargado para este archivo fÃ­sico
         if full_path in self.file_cache:
             self.data_cache[dataset_select] = self.file_cache[full_path]
             debug_log(f"DataService: Reusando DataFrame compartido para '{dataset_select}'")
@@ -91,27 +91,27 @@ class DataService:
             debug_log(f"DataService: Cargando dataset '{dataset_select}' desde {csv_path}...")
             df = pd.read_csv(full_path)
 
-            # Guardar en cache físico y lógico (comparten referencia)
+            # Guardar en cache fÃ­sico y lÃ³gico (comparten referencia)
             self.file_cache[full_path] = df
             self.data_cache[dataset_select] = df
 
-            debug_log(f"✅ DataService: Dataset '{dataset_select}' cargado ({len(df)} filas, {len(df.columns)} columnas)")
+            debug_log(f"âœ… DataService: Dataset '{dataset_select}' cargado ({len(df)} filas, {len(df.columns)} columnas)")
 
             # Mostrar columnas disponibles para debug
             if 'main_class' in df.columns:
-                debug_log(f"   Columnas encontradas: main_class ✅")
+                debug_log(f"   Columnas encontradas: main_class âœ…")
             if 'group' in df.columns:
-                debug_log(f"   Columnas encontradas: group ✅")
+                debug_log(f"   Columnas encontradas: group âœ…")
             elif 'group_name' in df.columns:
-                debug_log(f"   Columnas encontradas: group_name ✅")
+                debug_log(f"   Columnas encontradas: group_name âœ…")
             elif 'grupo' in df.columns:
-                debug_log(f"   Columnas encontradas: grupo ✅")
+                debug_log(f"   Columnas encontradas: grupo âœ…")
 
             return df
 
         except FileNotFoundError:
-            error_log(f"❌ ERROR: Archivo no encontrado: {full_path}")
-            error_log(f"   Asegúrate de que el archivo existe o descarga los datos necesarios")
+            error_log(f"âŒ ERROR: Archivo no encontrado: {full_path}")
+            error_log(f"   AsegÃºrate de que el archivo existe o descarga los datos necesarios")
 
             # Fallback a main_class si el archivo no existe
             if dataset_select != 'main_class':
@@ -121,7 +121,7 @@ class DataService:
             return None
 
         except Exception as e:
-            error_log(f"❌ ERROR cargando dataset '{dataset_select}': {e}")
+            error_log(f"âŒ ERROR cargando dataset '{dataset_select}': {e}")
 
             # Fallback a main_class en caso de error
             if dataset_select != 'main_class':
@@ -152,7 +152,7 @@ class DataService:
         return ['main_class', 'grouped', 'disorder', 'grouped_disorder']
 
     def dataset_info(self, dataset_select='main_class'):
-        """Muestra información sobre un dataset"""
+        """Muestra informaciÃ³n sobre un dataset"""
         df = self.get_data_by_dataset(dataset_select)
 
         if df is None:
@@ -161,13 +161,13 @@ class DataService:
         info = f"\n=== Dataset: {dataset_select} ==="
         info += f"\nFilas: {len(df)}"
         info += f"\nColumnas: {list(df.columns)}"
-        info += f"\nParticipantes únicos: {df['participante'].nunique() if 'participante' in df.columns else 'N/A'}"
-        info += f"\nImágenes únicas: {df['ImageName'].nunique() if 'ImageName' in df.columns else 'N/A'}"
+        info += f"\nParticipantes Ãºnicos: {df['participante'].nunique() if 'participante' in df.columns else 'N/A'}"
+        info += f"\nImÃ¡genes Ãºnicas: {df['ImageName'].nunique() if 'ImageName' in df.columns else 'N/A'}"
 
         return info
 
 
-# Función helper para obtener la instancia del servicio
+# FunciÃ³n helper para obtener la instancia del servicio
 def get_data_service():
     """Retorna la instancia singleton del DataService"""
     return DataService()
@@ -198,4 +198,5 @@ if __name__ == '__main__':
 
     # Info de dataset
     debug_log(service.dataset_info('main_class'))
+
 

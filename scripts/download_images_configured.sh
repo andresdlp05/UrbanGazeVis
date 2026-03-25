@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 
 # Script configurado con FILE_IDs reales de Google Drive
 # TrackVis - Eye Tracking Visualization System
@@ -28,7 +28,7 @@ IMAGES_DISORDER_ID="1tbY9eN_WOS3-1RD5lziXB_4RS3TowLzM"
 IMAGES_GROUP_DISORDER_ID="1sjLgAjqbX0by5x-8VkSQWoqWORrC5Uxr"
 
 # ============================================
-# Función para descargar y extraer
+# FunciÃ³n para descargar y extraer
 # ============================================
 
 download_and_extract() {
@@ -49,7 +49,7 @@ download_and_extract() {
     mkdir -p "$(dirname $EXTRACT_PATH)"
     mkdir -p tmp
 
-    # Instalar gdown si no está
+    # Instalar gdown si no estÃ¡
     if ! command -v gdown &> /dev/null; then
         echo -e "${YELLOW}[INFO]${NC} Instalando gdown..."
         pip install -q gdown
@@ -91,25 +91,25 @@ mkdir -p static/images/images/ADE20K-GroupDisorder/images
 # ============================================
 
 # 1. Data (CSV files)
-download_and_extract "$DATA_ZIP_ID" "data.zip" "static/data" "📊 Datos CSV"
+download_and_extract "$DATA_ZIP_ID" "data.zip" "static/data" "ðŸ“Š Datos CSV"
 
-# 2. Imágenes originales
-download_and_extract "$IMAGES_ORIGINAL_ID" "images.zip" "static/images/images/images" "🖼️  Imágenes originales"
+# 2. ImÃ¡genes originales
+download_and_extract "$IMAGES_ORIGINAL_ID" "images.zip" "static/images/images/images" "ðŸ–¼ï¸  ImÃ¡genes originales"
 
-# 3. Imágenes de segmentación - ADE20K Classes
-download_and_extract "$IMAGES_SEG_ID" "images_seg.zip" "static/images/images/images_seg" "🎨 Segmentación ADE20K Classes"
+# 3. ImÃ¡genes de segmentaciÃ³n - ADE20K Classes
+download_and_extract "$IMAGES_SEG_ID" "images_seg.zip" "static/images/images/images_seg" "ðŸŽ¨ SegmentaciÃ³n ADE20K Classes"
 
-# 4. Datos de segmentación adicionales (si se necesitan)
-# download_and_extract "$DATOS_SEG_ID" "datos_seg.zip" "static/images/images/datos_seg" "📁 Datos de segmentación"
+# 4. Datos de segmentaciÃ³n adicionales (si se necesitan)
+# download_and_extract "$DATOS_SEG_ID" "datos_seg.zip" "static/images/images/datos_seg" "ðŸ“ Datos de segmentaciÃ³n"
 
-# 5. Imágenes de segmentación - ADE20K Groups
-download_and_extract "$IMAGES_GROUP_ID" "ADE20K-Group.zip" "static/images/images/ADE20K-Group/images" "🏗️  Segmentación ADE20K Groups"
+# 5. ImÃ¡genes de segmentaciÃ³n - ADE20K Groups
+download_and_extract "$IMAGES_GROUP_ID" "ADE20K-Group.zip" "static/images/images/ADE20K-Group/images" "ðŸ—ï¸  SegmentaciÃ³n ADE20K Groups"
 
-# 6. Imágenes de segmentación - ADE20K Disorder
-download_and_extract "$IMAGES_DISORDER_ID" "ADE20K-Disorder.zip" "static/images/images/ADE20K-Disorder/images" "⚠️  Segmentación ADE20K Disorder"
+# 6. ImÃ¡genes de segmentaciÃ³n - ADE20K Disorder
+download_and_extract "$IMAGES_DISORDER_ID" "ADE20K-Disorder.zip" "static/images/images/ADE20K-Disorder/images" "âš ï¸  SegmentaciÃ³n ADE20K Disorder"
 
-# 7. Imágenes de segmentación - ADE20K GroupDisorder
-download_and_extract "$IMAGES_GROUP_DISORDER_ID" "ADE20K-GroupDisorder.zip" "static/images/images/ADE20K-GroupDisorder/images" "🔀 Segmentación ADE20K GroupDisorder"
+# 7. ImÃ¡genes de segmentaciÃ³n - ADE20K GroupDisorder
+download_and_extract "$IMAGES_GROUP_DISORDER_ID" "ADE20K-GroupDisorder.zip" "static/images/images/ADE20K-GroupDisorder/images" "ðŸ”€ SegmentaciÃ³n ADE20K GroupDisorder"
 
 # ============================================
 # Limpiar
@@ -119,37 +119,38 @@ rm -rf tmp
 
 echo ""
 echo -e "${GREEN}=========================================="
-echo -e "  ✅ Descarga completada exitosamente"
+echo -e "  âœ… Descarga completada exitosamente"
 echo -e "==========================================${NC}"
 echo ""
 echo -e "${YELLOW}[INFO]${NC} Verificando archivos descargados..."
 echo ""
 
 # Verificar que existan archivos
-if [ -f "static/data/df_final1.csv" ]; then
+if [ -f "static/data/csv/df_final1.csv" ]; then
     echo -e "${GREEN}[OK]${NC} Datos CSV encontrados"
 else
     echo -e "${RED}[WARN]${NC} Datos CSV no encontrados"
 fi
 
 if [ -f "static/images/images/images/0.jpg" ]; then
-    echo -e "${GREEN}[OK]${NC} Imágenes originales encontradas"
+    echo -e "${GREEN}[OK]${NC} ImÃ¡genes originales encontradas"
 else
-    echo -e "${RED}[WARN]${NC} Imágenes originales no encontradas"
+    echo -e "${RED}[WARN]${NC} ImÃ¡genes originales no encontradas"
 fi
 
 if [ -f "static/images/images/images_seg/0.JPEG" ]; then
-    echo -e "${GREEN}[OK]${NC} Segmentación ADE20K Classes encontrada"
+    echo -e "${GREEN}[OK]${NC} SegmentaciÃ³n ADE20K Classes encontrada"
 else
-    echo -e "${RED}[WARN]${NC} Segmentación ADE20K Classes no encontrada"
+    echo -e "${RED}[WARN]${NC} SegmentaciÃ³n ADE20K Classes no encontrada"
 fi
 
 if [ -f "static/images/images/ADE20K-Group/images/0.png" ]; then
-    echo -e "${GREEN}[OK]${NC} Segmentación ADE20K Groups encontrada"
+    echo -e "${GREEN}[OK]${NC} SegmentaciÃ³n ADE20K Groups encontrada"
 else
-    echo -e "${RED}[WARN]${NC} Segmentación ADE20K Groups no encontrada"
+    echo -e "${RED}[WARN]${NC} SegmentaciÃ³n ADE20K Groups no encontrada"
 fi
 
 echo ""
 echo -e "${GREEN}[INFO]${NC} Listo para ejecutar: ${YELLOW}docker-compose up -d${NC}"
 echo ""
+

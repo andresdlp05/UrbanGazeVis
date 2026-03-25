@@ -92,9 +92,9 @@ def main():
 
     # Cargar datos
     print("\n1. Cargando datos...")
-    data_path = Path(__file__).parent / 'static' / 'data' / 'df_final1.csv'
-    scores_path = Path(__file__).parent / 'static' / 'data' / 'data_hololens.json'
-    output_path = Path(__file__).parent / 'static' / 'data' / 'precalculated_saliency_coverage.csv'
+    data_path = Path(__file__).parent / 'static' / 'data' / 'csv' / 'df_final1.csv'
+    scores_path = Path(__file__).parent / 'static' / 'data' / 'json' / 'data_hololens.json'
+    output_path = Path(__file__).parent / 'static' / 'data' / 'csv' / 'precalculated_saliency_coverage.csv'
 
     df = pd.read_csv(data_path)
     print(f"  Cargado dataset: {len(df)} filas")

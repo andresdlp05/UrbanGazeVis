@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-Script para descargar datos desde Google Drive automáticamente
+Script para descargar datos desde Google Drive automÃ¡ticamente
 Funciona en Windows, Linux y Mac
 """
 import os
@@ -8,13 +8,13 @@ import subprocess
 import sys
 import zipfile
 
-# Configuración de archivos a descargar
+# ConfiguraciÃ³n de archivos a descargar
 FILES_TO_DOWNLOAD = [
     {
         'file_id': '1VKLKNJts-bRPuXT3i34NpPLjF-RksI9G',
         'output': 'static/data.zip',
         'extract_to': 'static/data',
-        'check_file': 'static/data/df_final1.csv'
+        'check_file': 'static/data/csv/df_final1.csv'
     },
     {
         'file_id': '14rCekowQUwjdVTEyRvDkbPpYRgRiXYuZ',
@@ -54,21 +54,21 @@ def check_file_exists(filepath):
 
 def download_file(file_id, output_path):
     """Descarga un archivo desde Google Drive usando gdown"""
-    print(f"📥 Descargando {output_path}...")
+    print(f"ðŸ“¥ Descargando {output_path}...")
     try:
         subprocess.run(
             ['gdown', f'https://drive.google.com/uc?id={file_id}', '-O', output_path],
             check=True
         )
-        print(f"✅ Descarga completada: {output_path}")
+        print(f"âœ… Descarga completada: {output_path}")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error descargando {output_path}: {e}")
+        print(f"âŒ Error descargando {output_path}: {e}")
         return False
 
 def extract_zip(zip_path, extract_to):
-    """Extrae un archivo ZIP, manejando posibles directorios raíz dentro del zip"""
-    print(f"📦 Extrayendo {zip_path} a {extract_to}...")
+    """Extrae un archivo ZIP, manejando posibles directorios raÃ­z dentro del zip"""
+    print(f"ðŸ“¦ Extrayendo {zip_path} a {extract_to}...")
     try:
         os.makedirs(extract_to, exist_ok=True)
         
@@ -77,28 +77,28 @@ def extract_zip(zip_path, extract_to):
             # Obtener todos los nombres de archivo
             namelist = zip_ref.namelist()
             
-            # Intentar identificar un directorio raíz único
+            # Intentar identificar un directorio raÃ­z Ãºnico
             root_dir = ""
             if len(namelist) > 1 and namelist[0].endswith('/'):
-                # Si el primer elemento es un directorio, asumirlo como la raíz
+                # Si el primer elemento es un directorio, asumirlo como la raÃ­z
                 root_dir = namelist[0]
             
-            # Iterar y extraer, quitando el prefijo del directorio raíz si existe
+            # Iterar y extraer, quitando el prefijo del directorio raÃ­z si existe
             for member in namelist:
                 target_path = member
                 
-                # Quitar el prefijo del directorio raíz
+                # Quitar el prefijo del directorio raÃ­z
                 if member.startswith(root_dir) and root_dir:
                     target_path = member[len(root_dir):]
                 
-                # Evitar procesar la entrada de directorio raíz en sí misma (si fue identificada)
+                # Evitar procesar la entrada de directorio raÃ­z en sÃ­ misma (si fue identificada)
                 if not target_path:
                     continue
                     
                 # Crear la ruta de destino final
                 f_target = os.path.join(extract_to, target_path)
 
-                # Asegurarse de que el directorio exista para la extracción
+                # Asegurarse de que el directorio exista para la extracciÃ³n
                 f_dir = os.path.dirname(f_target)
                 if f_dir:
                     os.makedirs(f_dir, exist_ok=True)
@@ -110,56 +110,56 @@ def extract_zip(zip_path, extract_to):
                     with source, target:
                         target.write(source.read())
 
-        print(f"✅ Extracción completada: {extract_to}")
-        # Eliminar el ZIP después de extraer
+        print(f"âœ… ExtracciÃ³n completada: {extract_to}")
+        # Eliminar el ZIP despuÃ©s de extraer
         os.remove(zip_path)
-        print(f"🗑️  Archivo ZIP eliminado: {zip_path}")
+        print(f"ðŸ—‘ï¸  Archivo ZIP eliminado: {zip_path}")
         return True
     except Exception as e:
-        print(f"❌ Error extrayendo {zip_path}: {e}")
+        print(f"âŒ Error extrayendo {zip_path}: {e}")
         return False
 
 def main():
-    """Función principal"""
+    """FunciÃ³n principal"""
     print("=" * 60)
-    print("🚀 Verificando y descargando datos necesarios...")
+    print("ðŸš€ Verificando y descargando datos necesarios...")
     print("=" * 60)
 
     all_files_exist = True
 
-    # Verificar qué archivos faltan
+    # Verificar quÃ© archivos faltan
     for file_info in FILES_TO_DOWNLOAD:
         if not check_file_exists(file_info['check_file']):
             all_files_exist = False
-            print(f"⚠️  Falta: {file_info['check_file']}")
+            print(f"âš ï¸  Falta: {file_info['check_file']}")
         else:
-            print(f"✅ Existe: {file_info['check_file']}")
+            print(f"âœ… Existe: {file_info['check_file']}")
 
     if all_files_exist:
-        print("\n✅ Todos los archivos de datos ya existen. Saltando descarga.")
+        print("\nâœ… Todos los archivos de datos ya existen. Saltando descarga.")
         print("=" * 60)
         return 0
 
     # Descargar y extraer archivos faltantes
-    print("\n📥 Iniciando descarga de archivos faltantes...")
+    print("\nðŸ“¥ Iniciando descarga de archivos faltantes...")
 
     for file_info in FILES_TO_DOWNLOAD:
         if check_file_exists(file_info['check_file']):
-            print(f"⏭️  Saltando {file_info['output']} (ya existe)")
+            print(f"â­ï¸  Saltando {file_info['output']} (ya existe)")
             continue
 
         # Descargar
         if not download_file(file_info['file_id'], file_info['output']):
-            print(f"❌ Error crítico descargando {file_info['output']}")
+            print(f"âŒ Error crÃ­tico descargando {file_info['output']}")
             return 1
 
         # Extraer
         if not extract_zip(file_info['output'], file_info['extract_to']):
-            print(f"❌ Error crítico extrayendo {file_info['output']}")
+            print(f"âŒ Error crÃ­tico extrayendo {file_info['output']}")
             return 1
 
     print("\n" + "=" * 60)
-    print("✅ Descarga y extracción completadas exitosamente")
+    print("âœ… Descarga y extracciÃ³n completadas exitosamente")
     print("=" * 60)
     return 0
 

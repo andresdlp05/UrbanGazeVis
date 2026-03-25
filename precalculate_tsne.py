@@ -1,4 +1,4 @@
-"""
+﻿"""
 Script para precalcular todas las proyecciones t-SNE para todos los participantes.
 Evita el calculo en tiempo real por request.
 
@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(__file__))
 
 def load_vectors_data():
     """Carga embeddings y score_participant desde data_hololens_vectors.json."""
-    vectors_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'data_hololens_vectors.json')
+    vectors_path = os.path.join(os.path.dirname(__file__), 'static', 'data', 'json', 'data_hololens_vectors.json')
     if not os.path.exists(vectors_path):
         print(f"ERROR: Archivo no encontrado: {vectors_path}")
         return None
@@ -172,3 +172,4 @@ def main():
 if __name__ == '__main__':
     success = main()
     sys.exit(0 if success else 1)
+

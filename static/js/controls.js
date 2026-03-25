@@ -1,4 +1,4 @@
-// controls.js — UI controls, selectors, image view switching
+﻿// controls.js â€” UI controls, selectors, image view switching
 
 function setClearButtonEnabled(enabled) {
     const btnClear = document.getElementById('clearBrushBtn');
@@ -27,10 +27,10 @@ function switchImageView(mode) {
     // Remover SVG de contorno si existe
     d3.select(imageWrapper).select('svg.contour-svg').remove();
 
-    // Recrear brush para mantener consistencia de interacción
+    // Recrear brush para mantener consistencia de interacciÃ³n
     alignOverlayWithImage();
     createBrushSelection(imageWrapper, imgView);
-    updateOverlay(); // Actualizar overlay para aplicar opacidad según estado
+    updateOverlay(); // Actualizar overlay para aplicar opacidad segÃºn estado
 }
 
 function updateTabs() {
@@ -111,7 +111,7 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
         select.appendChild(optAll);
     }
 
-    // Si es selector de imágenes: ordenar por score o por número según el toggle
+    // Si es selector de imÃ¡genes: ordenar por score o por nÃºmero segÃºn el toggle
     let sortedValues = [...values];
     if (labelPrefix === 'img') {
         const sortByNum = document.getElementById('img-sort-toggle')?.checked ?? false;
@@ -121,7 +121,7 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
             sortedValues.sort((a, b) => (imageScores[b] || 0) - (imageScores[a] || 0));
         }
     }
-    // En Controls > Participant: ordenar numérico ascendente (igual que backend)
+    // En Controls > Participant: ordenar numÃ©rico ascendente (igual que backend)
     if (labelPrefix === 'part' && selectId === 'part-select') {
         sortedValues.sort((a, b) => Number(b) - Number(a));
     }
@@ -130,7 +130,7 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
         const opt = document.createElement("option");
         opt.value = v; // value = id only
 
-        // Si es imagen y tenemos score, agregarlo en paréntesis
+        // Si es imagen y tenemos score, agregarlo en parÃ©ntesis
         if (labelPrefix === 'img' && imageScores[v] !== undefined) {
             opt.textContent = `${labelPrefix}-${v} (${imageScores[v].toFixed(1)})`;
         } else if (labelPrefix === 'part' && scoresByValue && scoresByValue.has(String(v))) {
@@ -143,10 +143,10 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
     });
 }
 
-// Cargar scores de imágenes
+// Cargar scores de imÃ¡genes
 async function loadImageScores() {
     try {
-        const response = await fetch('/static/data/data_hololens.json');
+        const response = await fetch('/static/data/json/data_hololens.json');
         const data = await response.json();
 
         // Calcular promedio de score por imagen
@@ -209,5 +209,6 @@ function loadImageInControls2(imageName) {
         </div>
     `;
 
-    console.log(`Imagen cargada: ${imageName} en controls2 con ancho máximo: ${controls2Width * 0.95}px`);
+    console.log(`Imagen cargada: ${imageName} en controls2 con ancho mÃ¡ximo: ${controls2Width * 0.95}px`);
 }
+

@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 import pandas as pd
 from app.shared.logging_utils import debug_log, error_log
 from typing import List, Dict, Any
@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 class FixationDetectorIVT:
     """
     Detector de fijaciones usando algoritmo I-VT (Identification by Velocity Threshold)
-    Implementación fiel al código del notebook
+    ImplementaciÃ³n fiel al cÃ³digo del notebook
     """
     
     def __init__(self, velocity_threshold: float = 1.15, min_duration: float = 0.0):
@@ -15,7 +15,7 @@ class FixationDetectorIVT:
         
         Args:
             velocity_threshold: Umbral de velocidad en px/s (default: 1.15)
-            min_duration: Duración mínima de fijación en segundos (default: 0.0)
+            min_duration: DuraciÃ³n mÃ­nima de fijaciÃ³n en segundos (default: 0.0)
         """
         self.VEL_THRESH = velocity_threshold
         self.MIN_DURATION = min_duration
@@ -24,7 +24,7 @@ class FixationDetectorIVT:
                         image_height: int = 600) -> List[Dict[str, Any]]:
         """
         Detectar fijaciones usando algoritmo I-VT
-        Implementación exacta del notebook
+        ImplementaciÃ³n exacta del notebook
         
         Args:
             gaze_data: DataFrame con datos de gaze
@@ -32,12 +32,12 @@ class FixationDetectorIVT:
             image_height: Alto de imagen (no usado, mantenido por compatibilidad)
             
         Returns:
-            Lista de diccionarios con información de fijaciones detectadas
+            Lista de diccionarios con informaciÃ³n de fijaciones detectadas
         """
         if len(gaze_data) == 0:
             return []
         
-        # Llamar a la función principal que replica el notebook
+        # Llamar a la funciÃ³n principal que replica el notebook
         fix_df = self._detect_fixations_notebook_style(gaze_data)
         
         # Convertir a formato compatible con el sistema existente
@@ -63,11 +63,11 @@ class FixationDetectorIVT:
         """
         Implementa I-VT exactamente como en el notebook:
           - calcula velocidad entre muestras consecutivas (px/s),
-          - marca como 'is_fix' las que están por debajo de vel_thresh,
+          - marca como 'is_fix' las que estÃ¡n por debajo de vel_thresh,
           - agrupa valores consecutivos de is_fix en clusters,
-          - filtra clusters cuya duración >= min_duration.
+          - filtra clusters cuya duraciÃ³n >= min_duration.
 
-        Parámetros:
+        ParÃ¡metros:
         -----------
         df : DataFrame con columnas ['participante','ImageName','Time','pixelX','pixelY']
 
@@ -88,19 +88,19 @@ class FixationDetectorIVT:
         df0['velocity'] = np.sqrt(df0['dx']**2 + df0['dy']**2) / df0['dt'].replace(0, np.nan)
         df0['velocity'] = df0['velocity'].fillna(0)
         
-        # 4) marca si es potencial fijación
+        # 4) marca si es potencial fijaciÃ³n
         df0['is_fix'] = df0['velocity'] < self.VEL_THRESH
         
-        # 5) agrupo secuencias idénticas de is_fix POR PARTICIPANTE E IMAGEN
+        # 5) agrupo secuencias idÃ©nticas de is_fix POR PARTICIPANTE E IMAGEN
         df0['group_id'] = df0.groupby(['participante','ImageName']).ngroup()
         df0['cluster'] = df0.groupby('group_id')['is_fix'].apply(
             lambda x: (x != x.shift()).cumsum()
         ).values
         
-        # 6) por cada cluster de fijación, calculo duración y centroides
+        # 6) por cada cluster de fijaciÃ³n, calculo duraciÃ³n y centroides
         fix_events = []
         for (part, img, clust), grp in df0.groupby(['participante','ImageName','cluster']):
-            # Solo procesar clusters de fijación
+            # Solo procesar clusters de fijaciÃ³n
             if not grp['is_fix'].iloc[0]:
                 continue
             
@@ -108,7 +108,7 @@ class FixationDetectorIVT:
             t_end   = grp['Time'].iloc[-1]
             duration = t_end - t_start
             
-            # Filtrar por duración mínima
+            # Filtrar por duraciÃ³n mÃ­nima
             if duration >= self.MIN_DURATION:
                 x_cent = grp['pixelX'].mean()
                 y_cent = grp['pixelY'].mean()
@@ -128,7 +128,7 @@ class FixationDetectorIVT:
         return pd.DataFrame(fix_events)
     
     def get_fixation_stats(self, fixations: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Obtener estadísticas de las fijaciones detectadas"""
+        """Obtener estadÃ­sticas de las fijaciones detectadas"""
         if not fixations:
             return {
                 'total_fixations': 0,
@@ -161,27 +161,27 @@ class FixationDetectorIVT:
         }
 
 
-# Función de utilidad para usar el detector
+# FunciÃ³n de utilidad para usar el detector
 def detect_fixations_for_image(csv_data: pd.DataFrame, image_index: int, 
                              velocity_threshold: float = 1.15, 
                              min_duration: float = 0.0,
                              image_width: int = 600,
                              image_height: int = 450) -> Dict[str, Any]:
     """
-    Función de conveniencia para detectar fijaciones de una imagen específica
+    FunciÃ³n de conveniencia para detectar fijaciones de una imagen especÃ­fica
     
     Args:
         csv_data: DataFrame con todos los datos
-        image_index: Índice de la imagen (0-149) - usa ImageIndex, no ImageName
+        image_index: Ãndice de la imagen (0-149) - usa ImageIndex, no ImageName
         velocity_threshold: Umbral de velocidad en px/s (default: 1.15)
-        min_duration: Duración mínima en segundos (default: 0.0)
+        min_duration: DuraciÃ³n mÃ­nima en segundos (default: 0.0)
         image_width: Ancho para escalado
         image_height: Alto para escalado
         
     Returns:
-        Diccionario con fijaciones y estadísticas
+        Diccionario con fijaciones y estadÃ­sticas
     """
-    # Filtrar datos para la imagen específica usando ImageIndex (como en GitHub)
+    # Filtrar datos para la imagen especÃ­fica usando ImageIndex (como en GitHub)
     image_data = csv_data[csv_data['ImageIndex'] == image_index].copy()
     
     # Crear detector
@@ -190,7 +190,7 @@ def detect_fixations_for_image(csv_data: pd.DataFrame, image_index: int,
     # Detectar fijaciones
     fixations = detector.detect_fixations(image_data, image_width, image_height)
     
-    # Obtener estadísticas
+    # Obtener estadÃ­sticas
     stats = detector.get_fixation_stats(fixations)
     
     return {
@@ -207,7 +207,7 @@ def get_fixations_ivt(data, participant_id=None, image_id=None,
                      velocity_threshold=1.15, min_duration=0.0,
                      image_width=640, image_height=480):
     """
-    Función compartida para detectar fijaciones usando I-VT.
+    FunciÃ³n compartida para detectar fijaciones usando I-VT.
     Reemplaza a fixation_service.get_fixations_ivt()
     
     Parameters:
@@ -221,7 +221,7 @@ def get_fixations_ivt(data, participant_id=None, image_id=None,
     velocity_threshold : float
         Umbral de velocidad en px/s (default: 1.15)
     min_duration : float
-        Duración mínima de fijación en segundos (default: 0.0)
+        DuraciÃ³n mÃ­nima de fijaciÃ³n en segundos (default: 0.0)
     image_width : int
         Ancho para escalado (default: 640)
     image_height : int
@@ -229,10 +229,10 @@ def get_fixations_ivt(data, participant_id=None, image_id=None,
     
     Returns:
     --------
-    dict : Diccionario con fijaciones y estadísticas
+    dict : Diccionario con fijaciones y estadÃ­sticas
     """
     
-    # Filtrar datos si se especifican parámetros
+    # Filtrar datos si se especifican parÃ¡metros
     filtered_data = data.copy()
     
     if participant_id is not None:
@@ -249,14 +249,14 @@ def get_fixations_ivt(data, participant_id=None, image_id=None,
             'raw_gaze_points': 0
         }
     
-    # Crear detector con parámetros especificados
+    # Crear detector con parÃ¡metros especificados
     detector = FixationDetectorIVT(velocity_threshold=velocity_threshold, 
                                   min_duration=min_duration)
     
     # Detectar fijaciones
     fixations = detector.detect_fixations(filtered_data, image_width, image_height)
     
-    # Calcular estadísticas
+    # Calcular estadÃ­sticas
     stats = detector.get_fixation_stats(fixations)
     
     return {
@@ -279,10 +279,10 @@ def get_fixations_ivt(data, participant_id=None, image_id=None,
 
 def get_participant_fixations(data, participant_id, image_id):
     """
-    Función específica para Per Participant Analysis.
+    FunciÃ³n especÃ­fica para Per Participant Analysis.
     Reemplaza a fixation_service.get_participant_fixations()
     
-    UNIFICADO: Usa los mismos parámetros que Glyph Radial y Gráficos de Transiciones
+    UNIFICADO: Usa los mismos parÃ¡metros que Glyph Radial y GrÃ¡ficos de Transiciones
     """
     return get_fixations_ivt(
         data=data,
@@ -303,7 +303,7 @@ def _get_image_data_for_id(data, image_id):
     if 'ImageName' not in data.columns:
         return data
 
-    # Si ya viene filtrado para una sola imagen, úsalo directamente
+    # Si ya viene filtrado para una sola imagen, Ãºsalo directamente
     unique_images = data['ImageName'].dropna().unique()
     if len(unique_images) == 1 and int(unique_images[0]) == int(image_id):
         return data
@@ -313,10 +313,10 @@ def _get_image_data_for_id(data, image_id):
 
 def get_patch_fixations(data, image_id, pixel_bounds):
     """
-    Detectar fijaciones dentro de un área específica (patch).
+    Detectar fijaciones dentro de un Ã¡rea especÃ­fica (patch).
     
-    MÉTODO CORRECTO: Aplica I-VT a toda la imagen primero, luego filtra por patch.
-    Esto preserva la secuencia temporal necesaria para el cálculo correcto de velocidades.
+    MÃ‰TODO CORRECTO: Aplica I-VT a toda la imagen primero, luego filtra por patch.
+    Esto preserva la secuencia temporal necesaria para el cÃ¡lculo correcto de velocidades.
     
     Parameters:
     -----------
@@ -331,10 +331,10 @@ def get_patch_fixations(data, image_id, pixel_bounds):
     
     Returns:
     --------
-    dict : Diccionario con fijaciones en el área específica
+    dict : Diccionario con fijaciones en el Ã¡rea especÃ­fica
     """
     
-    # Filtrar por imagen solo una vez (o reutilizar si ya venía filtrado)
+    # Filtrar por imagen solo una vez (o reutilizar si ya venÃ­a filtrado)
     image_data = _get_image_data_for_id(data, image_id)
     
     if len(image_data) == 0:
@@ -394,7 +394,7 @@ def get_patch_fixations(data, image_id, pixel_bounds):
         if x_min <= x < x_max and y_min <= y < y_max:
             patch_fixations.append(fixation)
     
-    # 3. Contar puntos de gaze raw en el patch (solo para estadísticas)
+    # 3. Contar puntos de gaze raw en el patch (solo para estadÃ­sticas)
     patch_gaze_count = 0
     if {'pixelX', 'pixelY'}.issubset(image_data.columns):
         patch_gaze_count = len(image_data[
@@ -405,9 +405,9 @@ def get_patch_fixations(data, image_id, pixel_bounds):
         ])
     
     # Solo loggear en modo detallado para no saturar la consola cuando hay cientos de patches
-    # print(f"🔧 PATCH FIXATIONS: {len(patch_fixations)} fijaciones encontradas en patch")
+    # print(f"ðŸ”§ PATCH FIXATIONS: {len(patch_fixations)} fijaciones encontradas en patch")
     
-    # 4. Calcular estadísticas específicas del patch
+    # 4. Calcular estadÃ­sticas especÃ­ficas del patch
     detector = FixationDetectorIVT(velocity_threshold=1.15, min_duration=0.0)
     patch_stats = detector.get_fixation_stats(patch_fixations)
     
@@ -432,7 +432,7 @@ _fixation_cache = {}
 
 def clear_fixation_cache(image_id=None):
     """
-    Limpiar caché de fijaciones.
+    Limpiar cachÃ© de fijaciones.
     Reemplaza a fixation_service.clear_fixation_cache()
     """
     global _fixation_cache
@@ -448,7 +448,7 @@ def clear_fixation_cache(image_id=None):
 
 def compare_fixation_results(result1, result2):
     """
-    Comparar dos resultados de detección de fijaciones.
+    Comparar dos resultados de detecciÃ³n de fijaciones.
     Reemplaza a fixation_service.compare_fixation_results()
     """
     if 'error' in result1 or 'error' in result2:
@@ -472,7 +472,7 @@ def compare_fixation_results(result1, result2):
 
 if __name__ == "__main__":
     # Cargar datos
-    df = pd.read_csv("static/data/df_final1.csv")
+    df = pd.read_csv("static/data/csv/df_final1.csv")
     
     # Detectar fijaciones para imagen 0
     result = detect_fixations_for_image(df, image_index=0)
@@ -481,7 +481,7 @@ if __name__ == "__main__":
     debug_log(f"- Fijaciones detectadas: {result['stats']['total_fixations']}")
     debug_log(f"- Participantes: {result['stats']['participants']}")
     debug_log(f"- Puntos de gaze: {result['gaze_points_count']}")
-    debug_log(f"- Duración promedio: {result['stats']['avg_duration']:.3f}s")
+    debug_log(f"- DuraciÃ³n promedio: {result['stats']['avg_duration']:.3f}s")
     
     # Mostrar fijaciones por participante
     for participant, count in result['stats']['fixations_per_participant'].items():
@@ -500,3 +500,4 @@ if __name__ == "__main__":
     patch_result = get_patch_fixations(df, image_id=0, pixel_bounds=patch_bounds)
     if 'error' not in patch_result:
         debug_log(f"- get_patch_fixations: {patch_result['stats']['total_fixations']} fijaciones en patch")
+

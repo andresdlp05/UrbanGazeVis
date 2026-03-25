@@ -12,7 +12,7 @@ from fixation_detection_ivt import FixationDetectorIVT
 
 def load_main_data():
     """Cargar datos principales del eye tracking"""
-    data_path = os.path.join('static', 'data', 'df_final1.csv')
+    data_path = os.path.join('static', 'data', 'csv', 'df_final1.csv')
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"No se encontró el archivo: {data_path}")
     
@@ -179,14 +179,14 @@ def main():
             return
         
         # 3. Guardar CSV principal
-        output_path = os.path.join('static', 'data', 'precalculated_fixations.csv')
+        output_path = os.path.join('static', 'data', 'csv', 'precalculated_fixations.csv')
         save_fixations_csv(fixations_df, output_path)
         
         # 4. Crear estadísticas resumen
         stats = create_summary_stats(fixations_df)
         
         # 5. Guardar estadísticas
-        stats_path = os.path.join('static', 'data', 'fixation_stats.json')
+        stats_path = os.path.join('static', 'data', 'json', 'fixation_stats.json')
         import json
         with open(stats_path, 'w') as f:
             # Convertir sets y otros tipos no serializables

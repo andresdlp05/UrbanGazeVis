@@ -1,6 +1,6 @@
-"""
+﻿"""
 Controller para Heatmap de Densidad Ponderada por Clase y Participante
-Visualiza la atención (densidad de gaze) de cada participante por clase visual
+Visualiza la atenciÃ³n (densidad de gaze) de cada participante por clase visual
 """
 
 import pandas as pd
@@ -31,7 +31,7 @@ except ImportError as e:
 heatmap_bp = Blueprint('heatmap', __name__)
 
 class HeatmapController:
-    def __init__(self, csv_path='static/data/df_final1.csv'):
+    def __init__(self, csv_path='static/data/csv/df_final1.csv'):
         self.csv_path = csv_path
         self.data = None
         self.scores_data = None
@@ -50,12 +50,12 @@ class HeatmapController:
                 if self.scores_data is not None:
                     debug_log(f"OK: HeatmapController: Scores cargados desde DataService ({len(self.scores_data)} imagenes)")
             else:
-                # Fallback: cargar manualmente si DataService no está disponible
+                # Fallback: cargar manualmente si DataService no estÃ¡ disponible
                 full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
                 self.data = pd.read_csv(full_path)
                 error_log(f"ADVERTENCIA: HeatmapController: Datos cargados localmente ({len(self.data)} puntos de gaze)")
 
-                scores_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'data_hololens.json')
+                scores_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'json', 'data_hololens.json')
                 if os.path.exists(scores_path):
                     with open(scores_path, 'r') as f:
                         self.scores_data = json.load(f)
@@ -82,9 +82,9 @@ class HeatmapController:
 
         Args:
             image_id: ImageName de la imagen (usado para filtrar datos del CSV)
-            top_n_clases: Número de clases principales a mostrar
+            top_n_clases: NÃºmero de clases principales a mostrar
             data_type: Tipo de datos a usar ('gaze' o 'fixations')
-            dataset_select: Columna a usar para clasificación ('main_class' o 'grupo')
+            dataset_select: Columna a usar para clasificaciÃ³n ('main_class' o 'grupo')
             image_name: ImageName de la imagen (usado para buscar en scores/JSON) - DEPRECATED, use image_id
             mode: 'attention' para densidad, 'time' para tiempo total por clase
 
@@ -94,7 +94,7 @@ class HeatmapController:
         # image_id ahora es ImageName directamente (0-149)
         debug_log(f"HeatmapController.get_heatmap_data(image_id={image_id}, data_type={data_type}, dataset_select={dataset_select})")
 
-        # Obtener el DataFrame correcto según dataset_select
+        # Obtener el DataFrame correcto segÃºn dataset_select
         if hasattr(self, 'data_service') and self.data_service:
             current_data = self.data_service.get_data_by_dataset(dataset_select)
         else:
@@ -131,7 +131,7 @@ class HeatmapController:
             if not valid_participants:
                 return {'error': f'No valid participants found for image {image_id}'}
 
-            # Filtrar datos por ImageName y participantes válidos
+            # Filtrar datos por ImageName y participantes vÃ¡lidos
             df_filtered = current_data[
                 (current_data['ImageName'] == image_id) &
                 (current_data['participante'].isin(valid_participants))
@@ -140,7 +140,7 @@ class HeatmapController:
             if len(df_filtered) == 0:
                 return {'error': f'No data for image {image_id}'}
 
-            # Eliminar puntos sin clasificación
+            # Eliminar puntos sin clasificaciÃ³n
             df_filtered = df_filtered[
                 (df_filtered[class_column].notna()) &
                 (df_filtered[class_column].astype(str).str.strip() != '')
@@ -169,7 +169,7 @@ class HeatmapController:
                             valid_set = set(valid_participants)
                             filtered_fix = [f for f in all_fix if f.get('participante') in valid_set]
                             if filtered_fix:
-                                debug_log(f"✓ Usando {len(filtered_fix)} fijaciones PRE-CALCULADAS")
+                                debug_log(f"âœ“ Usando {len(filtered_fix)} fijaciones PRE-CALCULADAS")
                                 fixations_list = filtered_fix
                                 use_precomputed = True
                     except Exception as e:
@@ -195,7 +195,7 @@ class HeatmapController:
                     return {'error': f'No fixations detected for image {image_id}'}
 
                 # Convertir fixations a formato compatible
-                # Para cada fixation, asignar el main_class más común de los puntos que caen dentro del radio de fijación
+                # Para cada fixation, asignar el main_class mÃ¡s comÃºn de los puntos que caen dentro del radio de fijaciÃ³n
                 data_to_process = []
                 fixation_radius = 50  # radio en pixels para buscar puntos cercanos
 
@@ -207,7 +207,7 @@ class HeatmapController:
                     duration = fix.get('duration', 0)
                     start_time = fix.get('start', 0)
 
-                    # Buscar main_class más común en los puntos CERCANOS a esta fixation
+                    # Buscar main_class mÃ¡s comÃºn en los puntos CERCANOS a esta fixation
                     participant_points = df_filtered[df_filtered['participante'] == participant_id]
 
                     if len(participant_points) > 0:
@@ -222,11 +222,11 @@ class HeatmapController:
                         nearby_points = participant_points[nearby_mask]
 
                         if len(nearby_points) > 0:
-                            # Usar la clase más común de los puntos cercanos
+                            # Usar la clase mÃ¡s comÃºn de los puntos cercanos
                             class_value = nearby_points[class_column].mode()
                             class_value = class_value[0] if len(class_value) > 0 else 'unknown'
                         else:
-                            # Si no hay puntos cercanos, usar el punto más cercano
+                            # Si no hay puntos cercanos, usar el punto mÃ¡s cercano
                             closest_idx = distances.idxmin()
                             class_value = participant_points.loc[closest_idx, class_column]
                     else:
@@ -252,13 +252,13 @@ class HeatmapController:
                 df_sorted = pd.DataFrame(data_to_process)
                 debug_log(f"Converted {len(df_sorted)} fixations to processable format")
             else:
-                # Procesar como gaze points (código original)
+                # Procesar como gaze points (cÃ³digo original)
                 # Ordenar por participante, imagen y tiempo
                 df_sorted = df_filtered.sort_values(
                     by=['participante', 'ImageIndex', 'Time']
                 ).reset_index(drop=True)
 
-            # Calcular delta_t (duración de cada punto) - solo para gaze, fixations ya lo tienen
+            # Calcular delta_t (duraciÃ³n de cada punto) - solo para gaze, fixations ya lo tienen
             if data_type != 'fixations':
                 df_sorted['_bloque'] = df_sorted['participante'].astype(str) + '||' + \
                                        df_sorted['ImageIndex'].astype(str)
@@ -325,7 +325,7 @@ class HeatmapController:
             def calcular_densidad(row):
                 r = row['class_ratio']
                 if pd.isna(r) or r == 0:
-                    return row['time_por_clase']  # Si ratio es inválido, usar tiempo directamente
+                    return row['time_por_clase']  # Si ratio es invÃ¡lido, usar tiempo directamente
                 return row['time_por_clase'] / r
 
             por_participante_clase['density'] = \
@@ -345,10 +345,10 @@ class HeatmapController:
                 if total == 0: return 0.0
                 return (row['time_por_clase'] / total) * 100.0
 
-            # MoRH: % de atención que este participante le dio a esta clase
+            # MoRH: % de atenciÃ³n que este participante le dio a esta clase
             por_participante_clase_top['morh'] = por_participante_clase_top.apply(calcular_morh, axis=1)
             
-            # MoR: % del área física que ocupa la clase (lo multiplicamos por 100 si viene en decimales)
+            # MoR: % del Ã¡rea fÃ­sica que ocupa la clase (lo multiplicamos por 100 si viene en decimales)
             por_participante_clase_top['mor'] = por_participante_clase_top['class_ratio'].apply(
                 lambda x: float(x) * 100.0 if float(x) <= 1.0 else float(x)
             )
@@ -358,7 +358,7 @@ class HeatmapController:
             debug_log('POR IMAGEN CLASE HEATMAP')
             # debug_log(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
 
-            # SELECCIÓN DINÁMICA DEL MODO DE VISUALIZACIÓN
+            # SELECCIÃ“N DINÃMICA DEL MODO DE VISUALIZACIÃ“N
             if mode == 'attention':
                 matrix_values = 'density'
             elif mode == 'time':
@@ -377,10 +377,10 @@ class HeatmapController:
                 aggfunc='first',
                 fill_value=0.0
             )
-            # Asegurar que todas las clases top estén presentes
+            # Asegurar que todas las clases top estÃ©n presentes
             matriz = matriz.reindex(top_clases, fill_value=0.0)
 
-            # Asegurar que todos los participantes válidos estén presentes
+            # Asegurar que todos los participantes vÃ¡lidos estÃ©n presentes
             for p in valid_participants:
                 if p not in matriz.columns:
                     matriz[p] = 0.0
@@ -390,13 +390,13 @@ class HeatmapController:
             debug_log(f"[HEATMAP DEBUG] matriz shape={matriz.shape}")
             debug_log(f"[HEATMAP DEBUG] matrix_raw will have {len(top_clases)} rows")
 
-            # Normalizar matriz para visualización (0-1)
+            # Normalizar matriz para visualizaciÃ³n (0-1)
             matriz_norm = matriz.copy()
             max_val = matriz_norm.max().max()
             if max_val > 0:
                 matriz_norm = matriz_norm / max_val
 
-            # Obtener colores para cada clase según el dataset_select
+            # Obtener colores para cada clase segÃºn el dataset_select
             class_colors = {}
             for clase in top_clases:
                 color_rows = df_filtered[df_filtered[class_column] == clase][color_column].dropna()
@@ -447,6 +447,7 @@ def get_heatmap(image_id):
         mode=mode
     )
     return jsonify(data)
+
 
 
 

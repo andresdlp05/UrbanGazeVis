@@ -1,5 +1,5 @@
-"""
-Controller para la página By Participant
+﻿"""
+Controller para la pÃ¡gina By Participant
 """
 
 from flask import Blueprint, render_template, jsonify
@@ -15,7 +15,7 @@ import umap
 from sklearn.manifold import MDS
 from app.shared.logging_utils import debug_log, error_log
 
-# Importar servicio de caché para t-SNE
+# Importar servicio de cachÃ© para t-SNE
 try:
     from app.shared.tsne_cache_service import get_tsne_cache
     debug_log("OK: ByParticipant: Servicio de cache t-SNE HABILITADO")
@@ -26,9 +26,9 @@ except ImportError as e:
 by_participant_bp = Blueprint('by_participant', __name__)
 
 class ByParticipantController:
-    def __init__(self, csv_path='static/data/df_final1.csv', scores_path='static/data/data_hololens_vectors.json',
-                 vectors_path='static/data/data_hololens_vectors.json', segmentations_path='static/data/upd_segmentations.csv',
-                 saliency_cache_path='static/data/precalculated_saliency_coverage.csv'):
+    def __init__(self, csv_path='static/data/csv/df_final1.csv', scores_path='static/data/json/data_hololens_vectors.json',
+                 vectors_path='static/data/json/data_hololens_vectors.json', segmentations_path='static/data/csv/upd_segmentations.csv',
+                 saliency_cache_path='static/data/csv/precalculated_saliency_coverage.csv'):
         self.csv_path = csv_path
         self.scores_path = scores_path
         self.vectors_path = vectors_path
@@ -49,7 +49,7 @@ class ByParticipantController:
             self.data = pd.read_csv(full_path)
             debug_log(f"By Participant data loaded: {len(self.data)} rows")
 
-            # Cargar JSON con información de imágenes y participantes
+            # Cargar JSON con informaciÃ³n de imÃ¡genes y participantes
             scores_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.scores_path)
             if os.path.exists(scores_full_path):
                 with open(scores_full_path, 'r') as f:
@@ -58,7 +58,7 @@ class ByParticipantController:
             else:
                 debug_log(f"Scores file not found at: {scores_full_path}")
 
-            # Cargar vectores/embeddings de imágenes
+            # Cargar vectores/embeddings de imÃ¡genes
             vectors_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.vectors_path)
             if os.path.exists(vectors_full_path):
                 with open(vectors_full_path, 'r') as f:
@@ -67,12 +67,12 @@ class ByParticipantController:
             else:
                 debug_log(f"Vectors file not found at: {vectors_full_path}")
 
-            # Cargar datos de segmentación
+            # Cargar datos de segmentaciÃ³n
             segmentations_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.segmentations_path)
             if os.path.exists(segmentations_full_path):
                 self.segmentations_data = pd.read_csv(segmentations_full_path, sep=';')
                 debug_log(f"Segmentations data loaded: {len(self.segmentations_data)} rows")
-                # Limpiar columnas con todos los valores < 20.0 después de la fila 4 (menos agresivo)
+                # Limpiar columnas con todos los valores < 20.0 despuÃ©s de la fila 4 (menos agresivo)
                 exclude_cols = ["image_id", "seg_image_path", "seg_overlay_image_path", "mask_path"]
                 candidate_cols = self.segmentations_data.columns.difference(exclude_cols)
                 cols_all_zero = [
@@ -85,7 +85,7 @@ class ByParticipantController:
             else:
                 debug_log(f"Segmentations file not found at: {segmentations_full_path}")
 
-            # Cargar caché de saliency coverage pre-calculado
+            # Cargar cachÃ© de saliency coverage pre-calculado
             saliency_cache_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.saliency_cache_path)
             if os.path.exists(saliency_cache_full_path):
                 self.saliency_cache = pd.read_csv(saliency_cache_full_path)
@@ -97,11 +97,11 @@ class ByParticipantController:
             error_log(f"Error loading by_participant data: {e}")
 
     def get_participants(self):
-        """Obtiene lista de participantes únicos de data_hololens.json"""
+        """Obtiene lista de participantes Ãºnicos de data_hololens.json"""
         if self.scores_data is None:
             return []
 
-        # Recopilar todos los participantes únicos de todas las imágenes
+        # Recopilar todos los participantes Ãºnicos de todas las imÃ¡genes
         participants = set()
         for image_id, image_data in self.scores_data.items():
             if 'score_participant' in image_data:
@@ -111,11 +111,11 @@ class ByParticipantController:
         return sorted(list(participants))
 
     def get_images_for_participant(self, participant_id):
-        """Obtiene todas las imágenes que vio un participante según el CSV"""
+        """Obtiene todas las imÃ¡genes que vio un participante segÃºn el CSV"""
         if self.data is None:
             return []
 
-        # Obtener imágenes únicas para este participante del CSV
+        # Obtener imÃ¡genes Ãºnicas para este participante del CSV
         participant_data = self.data[self.data['participante'] == participant_id]
         if len(participant_data) == 0:
             return []
@@ -127,19 +127,19 @@ class ByParticipantController:
         """
         Calcula matriz de densidad ponderada para un participante
         - Filas: clases (top N por tiempo total)
-        - Columnas: imágenes que vio el participante (50)
+        - Columnas: imÃ¡genes que vio el participante (50)
         - Valores: densidad = time_en_clase / ratio_de_clase
         """
         if self.data is None or self.scores_data is None:
             return {'error': 'No data available'}
 
         try:
-            # Obtener imágenes que vio este participante
+            # Obtener imÃ¡genes que vio este participante
             images_for_participant = self.get_images_for_participant(participant_id)
             if not images_for_participant:
                 return {'error': f'No images found for participant {participant_id}'}
 
-            # Filtrar datos para este participante en sus imágenes
+            # Filtrar datos para este participante en sus imÃ¡genes
             df_filtered = self.data[
                 (self.data['participante'] == participant_id) &
                 (self.data['ImageName'].isin(images_for_participant))
@@ -148,7 +148,7 @@ class ByParticipantController:
             if len(df_filtered) == 0:
                 return {'error': f'No gaze data for participant {participant_id}'}
 
-            # Eliminar puntos sin clasificación
+            # Eliminar puntos sin clasificaciÃ³n
             df_filtered = df_filtered[
                 (df_filtered['main_class'].notna()) &
                 (df_filtered['main_class'].astype(str).str.strip() != '')
@@ -162,7 +162,7 @@ class ByParticipantController:
                 by=['participante', 'ImageName', 'Time']
             ).reset_index(drop=True)
 
-            # Calcular delta_t (duración de cada punto)
+            # Calcular delta_t (duraciÃ³n de cada punto)
             df_sorted['_bloque'] = df_sorted['participante'].astype(str) + '||' + \
                                    df_sorted['ImageName'].astype(str)
             df_sorted['Time_next'] = df_sorted.groupby('_bloque')['Time'].shift(-1)
@@ -227,14 +227,14 @@ class ByParticipantController:
                 fill_value=0.0
             )
 
-            # Asegurar que todas las clases top estén presentes
+            # Asegurar que todas las clases top estÃ©n presentes
             matriz = matriz.reindex(top_clases, fill_value=0.0)
 
-            # Asegurar que TODAS las 50 imágenes estén en las columnas (rellenar con ceros)
+            # Asegurar que TODAS las 50 imÃ¡genes estÃ©n en las columnas (rellenar con ceros)
             all_images_sorted = sorted(images_for_participant)
             matriz = matriz.reindex(columns=all_images_sorted, fill_value=0.0)
 
-            # Normalizar para visualización (0-1)
+            # Normalizar para visualizaciÃ³n (0-1)
             min_val = matriz.min().min() if len(matriz) > 0 else 0
             max_val = matriz.max().max() if len(matriz) > 0 else 1
 
@@ -246,7 +246,7 @@ class ByParticipantController:
 
             image_names = {}  # Mapeo ImageIndex -> ImageName (para frontend)
             image_indexes = []  # Lista de ImageIndexes ordenados (para data.images)
-            image_scores = {}  # Mapeo ImageName -> score del participante específico (1-10)
+            image_scores = {}  # Mapeo ImageName -> score del participante especÃ­fico (1-10)
 
             for img_name in all_images_sorted:
                 # Buscar el ImageIndex correspondiente a este ImageName
@@ -285,9 +285,9 @@ class ByParticipantController:
 
         Args:
             fixations: lista de tuplas (x, y) con coordenadas de puntos de gaze
-            img_width: ancho de la imagen (píxeles)
-            img_height: alto de la imagen (píxeles)
-            sigma: desviación estándar del kernel Gaussiano (≈1° visual = ~24 píxeles a 800x600)
+            img_width: ancho de la imagen (pÃ­xeles)
+            img_height: alto de la imagen (pÃ­xeles)
+            sigma: desviaciÃ³n estÃ¡ndar del kernel Gaussiano (â‰ˆ1Â° visual = ~24 pÃ­xeles a 800x600)
 
         Returns:
             heatmap normalizado entre 0 y 1
@@ -311,22 +311,22 @@ class ByParticipantController:
 
     def calculate_saliency_coverage(self, heatmap):
         """
-        Calcula el % de área cubierta (Saliency Coverage) usando Otsu Binarization.
+        Calcula el % de Ã¡rea cubierta (Saliency Coverage) usando Otsu Binarization.
 
-        Fórmula del paper: porcentaje de píxeles activados en el mapa binario
-        determinados mediante el algoritmo de Otsu (umbral automático).
+        FÃ³rmula del paper: porcentaje de pÃ­xeles activados en el mapa binario
+        determinados mediante el algoritmo de Otsu (umbral automÃ¡tico).
         """
         try:
             # Convertir a formato uint8 (0-255) necesario para OpenCV Otsu
             heatmap_uint8 = (heatmap * 255).astype(np.uint8)
 
-            # Aplicar umbralización de Otsu para encontrar el umbral óptimo
+            # Aplicar umbralizaciÃ³n de Otsu para encontrar el umbral Ã³ptimo
             # que minimiza la varianza intra-clase
             threshold_val, binary_map = cv2.threshold(
                 heatmap_uint8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
             )
 
-            # Calcular porcentaje de píxeles activados (blancos)
+            # Calcular porcentaje de pÃ­xeles activados (blancos)
             total_pixels = binary_map.size
             activated_pixels = np.count_nonzero(binary_map)
 
@@ -339,23 +339,23 @@ class ByParticipantController:
 
     def calculate_stationary_entropy(self, heatmap):
         """
-        Calcula la entropía de Shannon de la distribución de la mirada.
+        Calcula la entropÃ­a de Shannon de la distribuciÃ³n de la mirada.
 
-        Fórmula: H = -sum(p * log2(p)) donde p es la distribución de probabilidad
+        FÃ³rmula: H = -sum(p * log2(p)) donde p es la distribuciÃ³n de probabilidad
         del heatmap normalizado.
 
-        Rango: 0 = atención completamente concentrada, max = atención distribuida uniformemente
+        Rango: 0 = atenciÃ³n completamente concentrada, max = atenciÃ³n distribuida uniformemente
         """
         try:
-            # 1. Convertir el heatmap en una distribución de probabilidad (suma = 1)
+            # 1. Convertir el heatmap en una distribuciÃ³n de probabilidad (suma = 1)
             heatmap_sum = np.sum(heatmap)
             if heatmap_sum == 0:
                 return 0.0
 
             prob_dist = heatmap / heatmap_sum
 
-            # 2. Aplicar fórmula de Shannon: H = -sum(p * log2(p))
-            # Usamos una máscara para evitar log(0) que daría -inf
+            # 2. Aplicar fÃ³rmula de Shannon: H = -sum(p * log2(p))
+            # Usamos una mÃ¡scara para evitar log(0) que darÃ­a -inf
             mask = prob_dist > 0
             entropy = -np.sum(prob_dist[mask] * np.log2(prob_dist[mask]))
 
@@ -373,7 +373,7 @@ class ByParticipantController:
             return {'error': 'Saliency coverage cache not available. Run precalculate_saliency_coverage.py'}
 
         try:
-            # Filtrar datos del caché para este participante
+            # Filtrar datos del cachÃ© para este participante
             participant_data = self.saliency_cache[
                 self.saliency_cache['participante'] == participant_id
             ].copy()
@@ -413,19 +413,19 @@ class ByParticipantController:
 
     def get_embedding_projection_data(self, participant_id):
         """
-        Calcula proyección t-SNE de embeddings segmentarios para las imágenes de un participante.
+        Calcula proyecciÃ³n t-SNE de embeddings segmentarios para las imÃ¡genes de un participante.
         Retorna puntos proyectados con scores.
         """
         if self.vectors_data is None or self.segmentations_data is None:
             return {'error': 'Embedding data not available'}
 
         try:
-            # Obtener imágenes que vio este participante
+            # Obtener imÃ¡genes que vio este participante
             images_for_participant = self.get_images_for_participant(participant_id)
             if not images_for_participant:
                 return {'error': f'No images found for participant {participant_id}'}
 
-            # Extraer embeddings segmentarios para las imágenes de este participante
+            # Extraer embeddings segmentarios para las imÃ¡genes de este participante
             embeddings = []
             image_names = []
             scores = []
@@ -521,7 +521,7 @@ by_participant_controller = ByParticipantController()
 
 @by_participant_bp.route('/by-participant', methods=['GET'])
 def by_participant():
-    """Renderiza la página By Participant"""
+    """Renderiza la pÃ¡gina By Participant"""
     return render_template('by_participant.html')
 
 
@@ -534,7 +534,7 @@ def get_participants():
 
 @by_participant_bp.route('/by-participant/api/images/<int:participant_id>', methods=['GET'])
 def get_images_for_participant(participant_id):
-    """Obtiene imágenes que vio un participante"""
+    """Obtiene imÃ¡genes que vio un participante"""
     images = by_participant_controller.get_images_for_participant(participant_id)
     return jsonify({'images': images})
 
@@ -548,7 +548,7 @@ def get_heatmap_for_participant(participant_id):
 
 @by_participant_bp.route('/by-participant/api/embedding-projection/<int:participant_id>', methods=['GET'])
 def get_embedding_projection_for_participant(participant_id):
-    """Obtiene datos de proyección t-SNE de embeddings para un participante"""
+    """Obtiene datos de proyecciÃ³n t-SNE de embeddings para un participante"""
     data = by_participant_controller.get_embedding_projection_data(participant_id)
     return jsonify(data)
 
@@ -558,6 +558,7 @@ def get_saliency_coverage_for_participant(participant_id):
     """Obtiene datos de saliency coverage para un participante"""
     data = by_participant_controller.get_saliency_coverage_data(participant_id)
     return jsonify(data)
+
 
 
 

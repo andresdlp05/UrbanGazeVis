@@ -23,7 +23,7 @@ class PrecalculatedFixationsService:
         """Cargar datos de fijaciones pre-calculadas"""
         try:
             # Cargar CSV de fijaciones
-            fixations_path = os.path.join('static', 'data', 'precalculated_fixations.csv')
+            fixations_path = os.path.join('static', 'data', 'csv', 'precalculated_fixations.csv')
             if not os.path.exists(fixations_path):
                 print(f" No se encontró archivo de fijaciones pre-calculadas: {fixations_path}")
                 print(f" Ejecuta 'python generate_precalculated_fixations.py' para generarlo")
@@ -33,7 +33,7 @@ class PrecalculatedFixationsService:
             self.fixations_df = pd.read_csv(fixations_path)
             
             # Cargar estadísticas
-            stats_path = os.path.join('static', 'data', 'fixation_stats.json')
+            stats_path = os.path.join('static', 'data', 'json', 'fixation_stats.json')
             if os.path.exists(stats_path):
                 with open(stats_path, 'r') as f:
                     self.stats = json.load(f)

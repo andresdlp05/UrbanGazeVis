@@ -6,8 +6,6 @@ from app.controllers.scarf_plot import *
 from app.controllers.by_participant import *
 from app.controllers.glyph import glyph_bp
 from app.services.fixation_detection_ivt import get_fixations_ivt
-from app.services.overlay_precompute_service import get_overlay_precompute_service
-from app.services.overlay_data_precompute_service import get_overlay_data_precompute_service
 from app.shared.ivt_cache_service import get_ivt_cache_service
 import random
 import json
@@ -115,10 +113,6 @@ gaze_min_time_cache      = _svc.gaze_min_time_cache
 ivt_min_time_cache       = _svc.ivt_min_time_cache
 participant_scores_cache = _svc.participant_scores
 imagename_to_index       = _svc.imagename_to_index
-overlay_precompute_service = get_overlay_precompute_service()
-overlay_precompute_service.configure_sources(gaze_data_by_image, ivt_cache_by_image)
-overlay_data_precompute_service = get_overlay_data_precompute_service()
-overlay_data_precompute_service.configure_sources(gaze_data_by_image, ivt_cache_by_image)
 
 @app.route('/api/heatmap/<int:image_id>', methods=['GET'])
 def get_heatmap(image_id):
@@ -274,59 +268,6 @@ def get_gaze_data(image_id):
         print(f"Full traceback:\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 400
 
-
-@app.route('/api/precomputed-overlays/<int:image_id>', methods=['GET'])
-def get_precomputed_overlays(image_id):
-    """Devuelve URLs de overlays precomputados (heatmap y contour)."""
-    data_type = request.args.get('data_type', 'gaze').lower()
-    if data_type not in ['gaze', 'fixations']:
-        data_type = 'gaze'
-
-    force = str(request.args.get('force', 'false')).lower() in ['1', 'true', 'yes']
-    try:
-        result = overlay_precompute_service.generate_for_image(image_id, data_type=data_type, force=force)
-        return jsonify({
-            'image_id': image_id,
-            'data_type': data_type,
-            'heatmap_url': result.get('heatmap_url'),
-            'contour_url': result.get('contour_url'),
-            'generated': bool(result.get('generated', False)),
-            'status': 'success'
-        })
-    except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
-
-@app.route('/api/precomputed-overlay-data/<int:image_id>', methods=['GET'])
-def get_precomputed_overlay_data(image_id):
-    """Devuelve datos precomputados para dibujar en D3/canvas (heatmap+contour)."""
-    data_type = request.args.get('data_type', 'gaze').lower()
-    if data_type not in ['gaze', 'fixations']:
-        data_type = 'gaze'
-
-    participant_id = request.args.get('participant_id', 'all')
-    force = str(request.args.get('force', 'false')).lower() in ['1', 'true', 'yes']
-
-    try:
-        result = overlay_data_precompute_service.get_overlay_data(
-            image_id=image_id,
-            data_type=data_type,
-            participant_id=participant_id,
-            force=force
-        )
-        return jsonify({
-            'status': 'success',
-            'generated': bool(result.get('generated', False)),
-            'image_id': result.get('image_id', image_id),
-            'data_type': result.get('data_type', data_type),
-            'participant_key': result.get('participant_key', 'all'),
-            'point_count': result.get('point_count', 0),
-            'heatmap': result.get('heatmap', {}),
-            'contours': result.get('contours', {'levels': []})
-        })
-    except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
 @app.route('/api/analyze-area/<int:image_id>', methods=['POST'])
 def analyze_area(image_id):

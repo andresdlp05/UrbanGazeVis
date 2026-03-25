@@ -31,7 +31,7 @@ class IVTCacheService:
     def _load_gaze_data(self):
         try:
             base = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(base, '..', '..', 'static', 'data', 'df_final1.csv')
+            data_path = os.path.join(base, '..', '..', 'static', 'data', 'csv', 'df_final1.csv')
             df = pd.read_csv(data_path)
             debug_log(f"IVTCacheService: gaze data loaded ({len(df)} rows)")
             return df
@@ -42,7 +42,7 @@ class IVTCacheService:
     def _load_ivt_cache(self):
         try:
             base = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(base, '..', '..', 'static', 'data', 'ivt_precalculated.csv')
+            data_path = os.path.join(base, '..', '..', 'static', 'data', 'csv', 'ivt_precalculated.csv')
             if os.path.exists(data_path):
                 df = pd.read_csv(data_path)
                 debug_log(f"IVTCacheService: IVT cache loaded ({len(df)} rows)")
@@ -57,7 +57,7 @@ class IVTCacheService:
     def _load_hololens_data(self):
         try:
             base = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(base, '..', '..', 'static', 'data', 'data_hololens.json')
+            data_path = os.path.join(base, '..', '..', 'static', 'data', 'json', 'data_hololens.json')
             if os.path.exists(data_path):
                 with open(data_path, 'r') as f:
                     data = json.loads(f.read())

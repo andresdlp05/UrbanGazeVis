@@ -53,7 +53,7 @@ echo.
 
 REM 1. Data (CSV files)
 echo [INFO] Descargando datos CSV...
-if not exist "static\data\df_final1.csv" (
+if not exist "static\data\csv\df_final1.csv" (
     echo [INFO] Descargando data.zip...
     gdown "https://drive.google.com/uc?id=%DATA_ZIP_ID%" -O tmp\data.zip
     if errorlevel 0 (
@@ -167,7 +167,7 @@ echo.
 echo [INFO] Verificando archivos descargados...
 echo.
 
-if exist "static\data\df_final1.csv" (
+if exist "static\data\csv\df_final1.csv" (
     echo [OK] Datos CSV encontrados
 ) else (
     echo [WARN] Datos CSV no encontrados

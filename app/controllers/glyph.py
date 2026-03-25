@@ -1560,7 +1560,7 @@ def get_area_analysis(image_id):
         participant_scores = {}
         try:
             import json
-            eval_data_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'data_hololens.json')
+            eval_data_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'json', 'data_hololens.json')
             if os.path.exists(eval_data_path):
                 with open(eval_data_path, 'r') as f:
                     eval_data = json.load(f)
