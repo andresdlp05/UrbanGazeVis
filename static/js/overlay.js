@@ -7,6 +7,8 @@ const overlayLog = window.debugLog || function(...args) {
 };
 let lastOverlayRenderSignature = null;
 const precomputedOverlayCache = new Map();
+const precomputedOverlayDataCache = new Map();
+let precomputedOverlayDataRequestToken = 0;
 
 function buildParticipantPointIndex(points) {
     const index = new Map();
@@ -53,33 +55,123 @@ function clearOverlayPoints() {
     overlayLog('Cleared overlay points, contours and heatmap');
 }
 
-function shouldUsePrecomputedOverlay() {
-    return false;
+
+
+
+function drawContoursFromPrecomputedData(contoursPayload, dataType) {
+    const imageWrapper = document.getElementById('component-1');
+    const img = document.getElementById('sel-img-view');
+    if (!imageWrapper || !img) return;
+
+    d3.select(imageWrapper).select('svg.contour-svg').remove();
+
+    const levels = contoursPayload?.levels || [];
+    if (!levels.length) return;
+
+    const imgRect = img.getBoundingClientRect();
+    const containerRect = imageWrapper.getBoundingClientRect();
+    const imgWidth = imgRect.width;
+    const imgHeight = imgRect.height;
+    const imgOffsetTop = imgRect.top - containerRect.top;
+    const imgOffsetLeft = imgRect.left - containerRect.left;
+
+    const svg = d3.select(imageWrapper)
+        .append('svg')
+        .attr('class', 'contour-svg')
+        .attr('width', imgWidth)
+        .attr('height', imgHeight)
+        .style('position', 'absolute')
+        .style('top', imgOffsetTop + 'px')
+        .style('left', imgOffsetLeft + 'px')
+        .style('pointer-events', 'none')
+        .style('z-index', '1196');
+
+    const scaleX = imgWidth / 800;
+    const scaleY = imgHeight / 600;
+    const lineGenerator = d3.line()
+        .x(d => d[0] * scaleX)
+        .y(d => d[1] * scaleY)
+        .curve(d3.curveLinearClosed);
+
+    const paths = [];
+    levels.forEach(levelObj => {
+        const level = Number(levelObj?.level) || 0;
+        (levelObj?.paths || []).forEach(path => {
+            if (Array.isArray(path) && path.length >= 3) {
+                paths.push({ level, path });
+            }
+        });
+    });
+
+    const strokeColor = dataType === 'gaze' ? 'red' : 'orange';
+    svg.selectAll('path')
+        .data(paths)
+        .join('path')
+        .attr('d', d => lineGenerator(d.path))
+        .attr('fill', 'none')
+        .attr('stroke', strokeColor)
+        .attr('stroke-width', 2)
+        .attr('opacity', 0.8);
 }
 
-function getPrecomputedOverlayUrls(imageId, dataType) {
-    const key = `${imageId}|${dataType}`;
-    if (precomputedOverlayCache.has(key)) {
-        return Promise.resolve(precomputedOverlayCache.get(key));
+function drawHeatmapFromPrecomputedData(heatmapPayload, dataType) {
+    void dataType;
+    const imageWrapper = document.getElementById('component-1');
+    const img = document.getElementById('sel-img-view');
+    if (!imageWrapper || !img) return;
+
+    const width = Number(heatmapPayload?.width) || 0;
+    const height = Number(heatmapPayload?.height) || 0;
+    const values = heatmapPayload?.values || [];
+    if (width <= 0 || height <= 0 || !Array.isArray(values) || values.length !== width * height) {
+        return;
     }
 
-    return fetch(`/api/precomputed-overlays/${imageId}?data_type=${dataType}`)
-        .then(resp => resp.json())
-        .then(data => {
-            if (data && data.heatmap_url && data.contour_url) {
-                precomputedOverlayCache.set(key, data);
-                return data;
-            }
-            throw new Error(data?.error || 'No precomputed overlay URLs');
-        });
-}
+    const existingCanvas = imageWrapper.querySelector('canvas.heatmap-canvas');
+    if (existingCanvas) {
+        existingCanvas.remove();
+    }
 
-function drawPrecomputedOverlayLayer(layerType, dataType, fallbackPoints, requestToken) {
-    void layerType;
-    void dataType;
-    void fallbackPoints;
-    void requestToken;
-    return true;
+    const imgRect = img.getBoundingClientRect();
+    const containerRect = imageWrapper.getBoundingClientRect();
+    const imgWidth = imgRect.width;
+    const imgHeight = imgRect.height;
+    const imgOffsetTop = imgRect.top - containerRect.top;
+    const imgOffsetLeft = imgRect.left - containerRect.left;
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'heatmap-canvas';
+    canvas.width = imgWidth;
+    canvas.height = imgHeight;
+    canvas.style.position = 'absolute';
+    canvas.style.top = imgOffsetTop + 'px';
+    canvas.style.left = imgOffsetLeft + 'px';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.zIndex = '1196';
+    imageWrapper.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d');
+    const imageData = tempCtx.createImageData(width, height);
+
+    for (let i = 0; i < values.length; i++) {
+        const value = (Number(values[i]) || 0) / 255;
+        const color = getJetColor(value);
+        const idx = i * 4;
+        imageData.data[idx] = color.r;
+        imageData.data[idx + 1] = color.g;
+        imageData.data[idx + 2] = color.b;
+        imageData.data[idx + 3] = color.a;
+    }
+
+    tempCtx.putImageData(imageData, 0, 0);
+    ctx.drawImage(tempCanvas, 0, 0, width, height, 0, 0, imgWidth, imgHeight);
 }
 
 function drawContoursOverlay(points, dataType) {
