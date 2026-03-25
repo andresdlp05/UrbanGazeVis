@@ -1,16 +1,19 @@
 """
-Servicio optimizado de fijaciones usando CSV pre-calculado.
-Reemplaza get_fixations_ivt() con lookups ultra-rápidos.
+Servicio unificado de fijaciones pre-calculadas.
+Adaptador sobre `precalculated_fixations_service` para evitar duplicacion de logica.
 """
 
-import pandas as pd
-import numpy as np
-import os
 import time
-from functools import lru_cache
+import numpy as np
+import pandas as pd
+
+try:
+    from precalculated_fixations_service import precalculated_service as _delegate_service
+except Exception:
+    _delegate_service = None
+
 
 def _safe_json_value(value, default_value='unknown'):
-    """Función auxiliar para asegurar que los valores sean serializables a JSON."""
     if value is None:
         return default_value
     if pd.isna(value):
@@ -21,308 +24,191 @@ def _safe_json_value(value, default_value='unknown'):
         return default_value
     return value
 
+
 class PrecomputedFixationService:
-    """Servicio de fijaciones usando datos pre-calculados."""
-    
+    """API estable para obtener fijaciones pre-calculadas."""
+
     def __init__(self, csv_path=None):
-        self.csv_path = csv_path or os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            'static', 'data', 'precalculated_fixations.csv'
-        )
-        self.fixations_df = None
-        self._load_fixations()
-    
-    def _load_fixations(self):
-        """Cargar fijaciones pre-calculadas."""
+        self.csv_path = csv_path
+        self._delegate = _delegate_service if _delegate_service is not None and _delegate_service.is_available() else None
+        self.fixations_df = getattr(self._delegate, 'fixations_df', None)
+
+    def is_available(self):
+        return self._delegate is not None
+
+    def get_global_stats(self):
+        if self._delegate is None:
+            return {}
         try:
-            print(f"Cargando fijaciones pre-calculadas desde {self.csv_path}")
-            self.fixations_df = pd.read_csv(self.csv_path)
-            print(f"Cargadas {len(self.fixations_df)} fijaciones pre-calculadas")
+            return self._delegate.get_global_stats()
+        except Exception:
+            return {}
 
-            # MAPEAR COLUMNAS: El CSV tiene 'participante' e 'ImageName', no 'participant_id' e 'image_id'
-            self.fixations_df.rename(columns={
-                'participante': 'participant_id',
-                'ImageName': 'image_id',
-                'patch_10_index': 'patch_10',
-                'patch_20_index': 'patch_20',
-                'patch_40_index': 'patch_40'
-            }, inplace=True)
-
-            # Asegurar que existan columnas requeridas
-            if 'main_class' not in self.fixations_df.columns:
-                self.fixations_df['main_class'] = 'unknown'
-
-            # Crear índices para búsqueda rápida y optimizar memoria
-            self.fixations_df.set_index(['image_id', 'participant_id'], inplace=True)
-            self.fixations_df.sort_index(inplace=True)  # Optimizar para lookups rapidos
-
-            # Optimización de memoria: convertir a tipos más eficientes
-            for col in ['start_time', 'end_time', 'duration', 'x_centroid', 'y_centroid']:
-                if col in self.fixations_df.columns:
-                    self.fixations_df[col] = self.fixations_df[col].astype('float32')
-
-            for col in ['point_count', 'patch_10', 'patch_20', 'patch_40']:
-                if col in self.fixations_df.columns:
-                    self.fixations_df[col] = self.fixations_df[col].astype('int16')
-
-        except FileNotFoundError:
-            print(f"Archivo precalculated_fixations.csv no encontrado: {self.csv_path}")
-            print("Ejecute 'python precompute_fixations.py' para generar precalculated_fixations.csv")
-            self.fixations_df = None
-        except Exception as e:
-            print(f"Error cargando fijaciones pre-calculadas: {e}")
-            self.fixations_df = None
-    
-    @lru_cache(maxsize=500)  # Reducir cache para ahorrar memoria
-    def get_fixations_fast(self, image_id, participant_id=None, patch_size=40):
-        """
-        Obtener fijaciones pre-calculadas ultra-rápido.
-        
-        Parameters:
-        -----------
-        image_id : int
-            ID de la imagen
-        participant_id : int, optional
-            ID del participante (None para todos)
-        patch_size : int
-            Tamaño de patch (10, 20, 40)
-            
-        Returns:
-        --------
-        dict : Fijaciones en formato compatible con I-VT original
-        """
-        start_time = time.time()
-        
-        if self.fixations_df is None:
+    def get_attention_matrix(self, image_id, patch_size=40):
+        if self._delegate is None:
             return {'error': 'Fijaciones pre-calculadas no disponibles'}
-        
+        return self._delegate.get_attention_matrix(int(image_id), int(patch_size))
+
+    def get_fixations_for_image(self, image_id, patch_size=40):
+        if self._delegate is None:
+            return []
+        return self._delegate.get_fixations_for_image(int(image_id), int(patch_size))
+
+    def get_fixations_for_participant_image(self, participant_id, image_id):
+        if self._delegate is None:
+            return []
+        return self._delegate.get_fixations_for_participant_image(int(participant_id), int(image_id))
+
+    def _build_stats(self, fixations_list, participant_id, image_id, start_time):
+        participants = [participant_id] if participant_id is not None else sorted(list({int(f.get('participante')) for f in fixations_list if f.get('participante') is not None}))
+        query_time = time.time() - start_time
+        return {
+            'fixations': fixations_list,
+            'stats': {
+                'total_fixations': len(fixations_list),
+                'participants': len(participants),
+                'avg_duration': float(np.mean([f.get('duration', 0.0) for f in fixations_list])) if fixations_list else 0.0,
+                'query_time': query_time,
+                'source': 'precalculated_service_delegate'
+            },
+            'image_id': image_id,
+            'participant_id': participant_id
+        }
+
+    def get_fixations_fast(self, image_id, participant_id=None, patch_size=40):
+        start_time = time.time()
+
+        if self._delegate is None:
+            return {'error': 'Fijaciones pre-calculadas no disponibles'}
+
         try:
-            # Filtrar por imagen
-            if participant_id is not None:
-                # Filtro específico: imagen + participante
-                try:
-                    fixations_subset = self.fixations_df.loc[(image_id, participant_id)]
-                    # Si es una sola fila, convertir a DataFrame
-                    if isinstance(fixations_subset, pd.Series):
-                        fixations_subset = fixations_subset.to_frame().T
-                    # If it's already a DataFrame, it's fine
-                except KeyError:
-                    fixations_subset = pd.DataFrame()
+            if participant_id is None:
+                fixations_list = self._delegate.get_fixations_for_image(int(image_id), int(patch_size))
+                # Normalizar campos para compatibilidad con consumidores existentes
+                for f in fixations_list:
+                    if 'start' not in f and 'start_time' in f:
+                        f['start'] = f['start_time']
+                    if 'end' not in f and 'end_time' in f:
+                        f['end'] = f['end_time']
+                    if 'pointCount' not in f and 'point_count' in f:
+                        f['pointCount'] = int(f['point_count'])
+                    f['main_class'] = _safe_json_value(f.get('main_class'), 'unknown')
             else:
-                # Filtro por imagen (todos los participantes)
-                fixations_subset = self.fixations_df.loc[
-                    self.fixations_df.index.get_level_values('image_id') == image_id
-                ]
-            
-            # Convertir a lista de diccionarios (formato compatible)
-            fixations_list = []
-
-            if len(fixations_subset) > 0:
-                patch_col_name = f'patch_{patch_size}'
-                subset_reset = fixations_subset.reset_index()
-                for rec in subset_reset.to_dict('records'):
-                    if participant_id is not None:
-                        fixation_participant_id = participant_id
-                        fixation_image_id = image_id
-                    else:
-                        fixation_image_id = rec['image_id']
-                        fixation_participant_id = rec['participant_id']
-
+                raw_fix = self._delegate.get_fixations_for_participant_image(int(participant_id), int(image_id))
+                patch_field = f'patch_{int(patch_size)}_index'
+                fixations_list = []
+                for rec in raw_fix:
+                    patch_index = rec.get(patch_field)
+                    if patch_index is None:
+                        patch_index = rec.get('patch_40_index', 0)
                     fixations_list.append({
-                        'participante': fixation_participant_id,
-                        'ImageName': fixation_image_id,
-                        'start_time': float(rec['start_time']),
-                        'end_time': float(rec['end_time']),
-                        'duration': float(rec['duration']),
-                        'x_centroid': float(rec['x_centroid']),
-                        'y_centroid': float(rec['y_centroid']),
-                        'pointCount': int(rec['point_count']),
-                        'patch_index': int(rec.get(patch_col_name, 0)),
-                        'main_class': _safe_json_value(rec['main_class'], 'unknown')
+                        'participante': int(rec.get('participante', participant_id)),
+                        'ImageName': int(rec.get('ImageName', image_id)),
+                        'start_time': float(rec.get('start_time', rec.get('start', 0.0))),
+                        'end_time': float(rec.get('end_time', rec.get('end', 0.0))),
+                        'start': float(rec.get('start_time', rec.get('start', 0.0))),
+                        'end': float(rec.get('end_time', rec.get('end', 0.0))),
+                        'duration': float(rec.get('duration', 0.0)),
+                        'x_centroid': float(rec.get('x_centroid', 0.0)),
+                        'y_centroid': float(rec.get('y_centroid', 0.0)),
+                        'pointCount': int(rec.get('pointCount', rec.get('point_count', 1))),
+                        'patch_index': int(patch_index),
+                        'main_class': _safe_json_value(rec.get('main_class'), 'unknown')
                     })
-            
-            # Calcular estadísticas rápidas
-            if participant_id is not None:
-                participants = [participant_id]
-            else:
-                participants = fixations_subset.index.get_level_values('participant_id').unique() if len(fixations_subset) > 0 else []
-            
-            end_time = time.time()
-            query_time = end_time - start_time
-            
-            result = {
-                'fixations': fixations_list,
-                'stats': {
-                    'total_fixations': len(fixations_list),
-                    'participants': len(participants),
-                    'avg_duration': np.mean([f['duration'] for f in fixations_list]) if fixations_list else 0,
-                    'query_time': query_time,
-                    'source': 'precomputed_csv'
-                },
-                'image_id': image_id,
-                'participant_id': participant_id,
-                'patch_size': patch_size
-            }
-            
-            print(f" ULTRA-FAST: {len(fixations_list)} fijaciones en {query_time:.4f}s (vs ~5-10s I-VT)")
-            return result
-            
-        except KeyError as e:
-            # No hay datos para esta combinación
-            print(f" KeyError in service: {e}")
-            return {
-                'fixations': [],
-                'stats': {
-                    'total_fixations': 0,
-                    'participants': 0,
-                    'avg_duration': 0,
-                    'query_time': time.time() - start_time,
-                    'source': 'precomputed_csv'
-                },
-                'image_id': image_id,
-                'participant_id': participant_id,
-                'error': f'No fixations found for image {image_id}, participant {participant_id}'
-            }
-        
+
+            return self._build_stats(fixations_list, participant_id, image_id, start_time)
+
         except Exception as e:
             return {'error': f'Error retrieving precomputed fixations: {str(e)}'}
-    
+
     def get_patch_fixations_fast(self, image_id, pixel_bounds, patch_size=40):
-        """
-        Filtrar fijaciones por región de patch ultra-rápido.
-        
-        Parameters:
-        -----------
-        image_id : int
-            ID de la imagen
-        pixel_bounds : dict
-            {'x_start': int, 'y_start': int, 'x_end': int, 'y_end': int}
-        patch_size : int
-            Tamaño de patch
-            
-        Returns:
-        --------
-        dict : Fijaciones filtradas por región
-        """
         start_time = time.time()
-        
-        # Obtener todas las fijaciones de la imagen
-        all_fixations = self.get_fixations_fast(image_id, patch_size=patch_size)
-        
+        all_fixations = self.get_fixations_fast(image_id, participant_id=None, patch_size=patch_size)
         if 'error' in all_fixations:
             return all_fixations
-        
-        # Filtrar por región espacial
+
+        x_start = pixel_bounds.get('x_start', pixel_bounds.get('x_min', 0))
+        y_start = pixel_bounds.get('y_start', pixel_bounds.get('y_min', 0))
+        x_end = pixel_bounds.get('x_end', pixel_bounds.get('x_max', 0))
+        y_end = pixel_bounds.get('y_end', pixel_bounds.get('y_max', 0))
+
         filtered_fixations = []
-        for fixation in all_fixations['fixations']:
-            x, y = fixation['x_centroid'], fixation['y_centroid']
-            
-            if (pixel_bounds['x_start'] <= x < pixel_bounds['x_end'] and
-                pixel_bounds['y_start'] <= y < pixel_bounds['y_end']):
+        for fixation in all_fixations.get('fixations', []):
+            x, y = fixation.get('x_centroid', 0), fixation.get('y_centroid', 0)
+            if x_start <= x < x_end and y_start <= y < y_end:
                 filtered_fixations.append(fixation)
-        
-        end_time = time.time()
-        
-        result = {
+
+        return {
             'fixations': filtered_fixations,
             'stats': {
                 'total_fixations': len(filtered_fixations),
-                'filtered_from': len(all_fixations['fixations']),
-                'filter_time': end_time - start_time,
-                'source': 'precomputed_csv_filtered'
+                'filtered_from': len(all_fixations.get('fixations', [])),
+                'filter_time': time.time() - start_time,
+                'source': 'precalculated_service_delegate_filtered'
             },
             'image_id': image_id,
             'pixel_bounds': pixel_bounds
         }
-        
-        print(f" FILTERED: {len(filtered_fixations)} fijaciones en región en {end_time - start_time:.4f}s")
-        return result
-    
+
     def get_semantic_transitions_fast(self, image_id, participant_id, min_duration=0.2, max_duration=5.0):
-        """
-        Generar transiciones semánticas ultra-rápido usando datos pre-calculados.
-
-        Parameters:
-        -----------
-        image_id : int
-            ID de la imagen
-        participant_id : int
-            ID del participante
-        min_duration : float
-            Duración mínima entre transiciones
-        max_duration : float
-            Duración máxima entre transiciones
-
-        Returns:
-        --------
-        dict : Secuencias de transición semánticas con timeline
-        """
-        start_time = time.time()
-
-        # Obtener fijaciones del participante ordenadas por tiempo
-        fixations_result = self.get_fixations_fast(image_id, participant_id)
-
-        if 'error' in fixations_result or not fixations_result['fixations']:
+        fixations_result = self.get_fixations_fast(image_id, participant_id=participant_id)
+        fixations = fixations_result.get('fixations', []) if isinstance(fixations_result, dict) else []
+        if not fixations:
             return {'sequence': [], 'region_stats': {}, 'timeline': [], 'error': 'No fixations available'}
 
-        fixations = sorted(fixations_result['fixations'], key=lambda x: x['start_time'])
+        fixations = sorted(fixations, key=lambda x: float(x.get('start_time', x.get('start', 0.0))))
 
-        # Agrupar por región semántica consecutiva
         regions = []
         current_region = None
         region_start = None
         region_fixations = []
 
         for fixation in fixations:
-            region = _safe_json_value(fixation['main_class'], 'unknown')
+            region = _safe_json_value(fixation.get('main_class'), 'unknown')
+            start_val = float(fixation.get('start_time', fixation.get('start', 0.0)))
+            end_val = float(fixation.get('end_time', fixation.get('end', start_val)))
 
             if region != current_region:
-                # Terminar región anterior
-                if current_region is not None:
-                    duration = fixation['start_time'] - region_start
+                if current_region is not None and region_fixations:
+                    duration = float(start_val - region_start)
                     if min_duration <= duration <= max_duration:
-                        # Calcular centroide promedio y contar fijaciones
-                        avg_x = sum(f['x_centroid'] for f in region_fixations) / len(region_fixations) if region_fixations else 0
-                        avg_y = sum(f['y_centroid'] for f in region_fixations) / len(region_fixations) if region_fixations else 0
+                        avg_x = sum(f.get('x_centroid', 0.0) for f in region_fixations) / len(region_fixations)
+                        avg_y = sum(f.get('y_centroid', 0.0) for f in region_fixations) / len(region_fixations)
                         regions.append({
                             'region': current_region,
                             'start_time': region_start,
-                            'end_time': fixation['start_time'],
+                            'end_time': start_val,
                             'duration': duration,
                             'fixation_count': len(region_fixations),
                             'centroid_x': avg_x,
                             'centroid_y': avg_y
                         })
-
-                # Iniciar nueva región
                 current_region = region
-                region_start = fixation['start_time']
-                region_fixations = [fixation]
+                region_start = start_val
+                region_fixations = [{**fixation, '_end': end_val}]
             else:
-                region_fixations.append(fixation)
+                region_fixations.append({**fixation, '_end': end_val})
 
-        # Agregar la última región
         if current_region is not None and region_fixations:
-            duration = fixations[-1]['end_time'] - region_start
+            last_end = float(region_fixations[-1].get('_end', region_start))
+            duration = last_end - region_start
             if min_duration <= duration <= max_duration:
-                avg_x = sum(f['x_centroid'] for f in region_fixations) / len(region_fixations)
-                avg_y = sum(f['y_centroid'] for f in region_fixations) / len(region_fixations)
+                avg_x = sum(f.get('x_centroid', 0.0) for f in region_fixations) / len(region_fixations)
+                avg_y = sum(f.get('y_centroid', 0.0) for f in region_fixations) / len(region_fixations)
                 regions.append({
                     'region': current_region,
                     'start_time': region_start,
-                    'end_time': fixations[-1]['end_time'],
+                    'end_time': last_end,
                     'duration': duration,
                     'fixation_count': len(region_fixations),
                     'centroid_x': avg_x,
                     'centroid_y': avg_y
                 })
 
-        # Crear transiciones
         sequence = []
         for i in range(1, len(regions)):
-            prev_region = regions[i-1]
+            prev_region = regions[i - 1]
             curr_region = regions[i]
-
             sequence.append({
                 'from_region': prev_region['region'],
                 'to_region': curr_region['region'],
@@ -330,76 +216,63 @@ class PrecomputedFixationService:
                 'duration': curr_region['start_time'] - prev_region['end_time']
             })
 
-        # Estadísticas por región
         region_stats = {}
         for region in regions:
-            region_name = region['region']
-            if region_name not in region_stats:
-                region_stats[region_name] = {
-                    'total_duration': 0,
+            name = region['region']
+            if name not in region_stats:
+                region_stats[name] = {
+                    'total_duration': 0.0,
                     'visit_count': 0,
                     'first_visit': None,
                     'last_visit': None,
-                    'centroid_x': 0,
-                    'centroid_y': 0
+                    'centroid_x': 0.0,
+                    'centroid_y': 0.0
                 }
-
-            stats = region_stats[region_name]
+            stats = region_stats[name]
             stats['total_duration'] += region['duration']
             stats['visit_count'] += 1
             stats['centroid_x'] = region['centroid_x']
             stats['centroid_y'] = region['centroid_y']
-
             if stats['first_visit'] is None or region['start_time'] < stats['first_visit']:
                 stats['first_visit'] = region['start_time']
             if stats['last_visit'] is None or region['end_time'] > stats['last_visit']:
                 stats['last_visit'] = region['end_time']
 
-        # Serializar timeline completo (compatible con renderScarfPlot)
-        timeline_serialized = []
-        for region in regions:
-            timeline_serialized.append({
-                'region': region.get('region', 'unknown'),
-                'start_time': float(region.get('start_time', 0.0)),
-                'end_time': float(region.get('end_time', region.get('start_time', 0.0))),
-                'duration': float(region.get('duration', 0.0)),
-                'fixation_count': int(region.get('fixation_count', 0)),
-                'centroid_x': float(region.get('centroid_x', 0.0)),
-                'centroid_y': float(region.get('centroid_y', 0.0))
-            })
+        timeline = [{
+            'region': r.get('region', 'unknown'),
+            'start_time': float(r.get('start_time', 0.0)),
+            'end_time': float(r.get('end_time', r.get('start_time', 0.0))),
+            'duration': float(r.get('duration', 0.0)),
+            'fixation_count': int(r.get('fixation_count', 0)),
+            'centroid_x': float(r.get('centroid_x', 0.0)),
+            'centroid_y': float(r.get('centroid_y', 0.0))
+        } for r in regions]
 
-        end_time = time.time()
-
-        result = {
+        return {
             'sequence': sequence,
             'region_stats': region_stats,
-            'timeline': timeline_serialized,
-            'processing_time': end_time - start_time,
+            'timeline': timeline,
             'total_transitions': len(sequence),
             'unique_regions': len(region_stats),
             'source': 'precomputed_semantic_transitions'
         }
 
-        print(f"TRANSITIONS: {len(sequence)} transiciones, {len(timeline_serialized)} segmentos en {end_time - start_time:.4f}s")
-        return result
 
-# Instancia global del servicio
 _precomputed_service = None
 
+
 def get_precomputed_service():
-    """Obtener instancia singleton del servicio pre-calculado."""
     global _precomputed_service
     if _precomputed_service is None:
         _precomputed_service = PrecomputedFixationService()
     return _precomputed_service
 
-# Funciones de compatibilidad con API existente
+
 def get_fixations_ivt_fast(data, participant_id=None, image_id=None, **kwargs):
-    """Función de compatibilidad que usa datos pre-calculados."""
     service = get_precomputed_service()
     return service.get_fixations_fast(image_id, participant_id)
 
+
 def get_patch_fixations_fast(data, image_id, pixel_bounds, **kwargs):
-    """Función de compatibilidad para filtrado por patch."""
     service = get_precomputed_service()
     return service.get_patch_fixations_fast(image_id, pixel_bounds)

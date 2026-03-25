@@ -1,5 +1,20 @@
-// scarf.js — scarf plot visualization and related highlight utilities
+// scarf.js - scarf plot visualization and related highlight utilities
 
+const scarfLog = window.debugLog || function(...args) {
+    if (window.DEBUG_LOGS) {
+        console.log(...args);
+    }
+};
+
+function getParticipantIndexedPoints(points, indexMap, participantId) {
+    if (!participantId || participantId === 'all') {
+        return points || [];
+    }
+    if (indexMap && typeof indexMap.get === 'function') {
+        return indexMap.get(String(participantId)) || [];
+    }
+    return (points || []).filter(point => String(point.participante || point.participant) === String(participantId));
+}
 function visualizeScarfPlot(data) {
     const container = document.getElementById('scarf-plot');
     container.innerHTML = ''; // Limpiar
@@ -10,7 +25,7 @@ function visualizeScarfPlot(data) {
     }
 
     // LOG: Ver qué colores están llegando del backend
-    console.log('%c=== SCARF PLOT COLORS DEBUG ===', 'color: orange; font-weight: bold');
+    scarfLog('%c=== SCARF PLOT COLORS DEBUG ===', 'color: orange; font-weight: bold');
     const allSegments = data.scarf_data.flatMap(d => d.segments);
     const uniqueColorsByClass = {};
     allSegments.forEach(seg => {
@@ -18,8 +33,8 @@ function visualizeScarfPlot(data) {
             uniqueColorsByClass[seg.class] = seg.color;
         }
     });
-    console.log('Colors by class:', uniqueColorsByClass);
-    console.log('Dataset:', currentDatasetSelect);
+    scarfLog('Colors by class:', uniqueColorsByClass);
+    scarfLog('Dataset:', currentDatasetSelect);
 
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
@@ -198,7 +213,7 @@ function visualizeScarfPlot(data) {
                     // Llamar a función global que actualiza heatmap, scarf plot y segmentación
                     updateHighlightsGlobal();
 
-                    console.log('Selected class from legend:', window.selectedClass);
+                    scarfLog('Selected class from legend:', window.selectedClass);
                 });
 
                 legendContainer.append(btnLegend);
@@ -218,7 +233,7 @@ function loadScarfPlot(imageId, dataType = 'gaze') {
             const baseUrl = window.location.origin;
             const apiUrl = `${baseUrl}/api/scarf-plot/${imageId}?data_type=${dataType}&dataset_select=${currentDatasetSelect}`;
 
-            console.log(`Cargando scarf plot desde: ${apiUrl} (data_type=${dataType}, dataset_select=${currentDatasetSelect})`);
+            scarfLog(`Cargando scarf plot desde: ${apiUrl} (data_type=${dataType}, dataset_select=${currentDatasetSelect})`);
 
             fetch(apiUrl)
                 .then(response => {
@@ -232,7 +247,7 @@ function loadScarfPlot(imageId, dataType = 'gaze') {
                         console.error('Error en respuesta:', data.error);
                         showScarfError(data.error);
                     } else {
-                        console.log(`Scarf plot data loaded (${dataType}):`, data);
+                        scarfLog(`Scarf plot data loaded (${dataType}):`, data);
                         visualizeScarfPlot(data);
                         // updateScarfLegend(data);
                     }
@@ -245,7 +260,7 @@ function loadScarfPlot(imageId, dataType = 'gaze') {
 
 // Resaltar bloque seleccionado en scarf plot (opacar el resto)
 function highlightScarfSegment(segment) {
-    console.log('Highlighting scarf segment:', segment);
+    scarfLog('Highlighting scarf segment:', segment);
 
     // Opacar todos los segmentos
     d3.selectAll('.scarf-segment')
@@ -277,7 +292,7 @@ function removeScarfSegmentHighlight() {
 
 // Función principal: mostrar puntos para un segmento del scarf plot
 function showPointsForScarfSegment(segment) {
-    console.log('Showing points for scarf segment:', segment);
+    scarfLog('Showing points for scarf segment:', segment);
     window._scarfSelecting = true;
     // Guardar el segmento actual para usar su color
     currentScarfSegment = segment;
@@ -298,23 +313,27 @@ function showPointsForScarfSegment(segment) {
         ? segment.end_time_real
         : segment.end_time_real / 1000;
 
-    console.log(`Filtering for participant ${participant}, time range: ${startSec.toFixed(2)}s - ${endSec.toFixed(2)}s (${start_time}ms - ${end_time}ms)`);
+    scarfLog(`Filtering for participant ${participant}, time range: ${startSec.toFixed(2)}s - ${endSec.toFixed(2)}s (${start_time}ms - ${end_time}ms)`);
+
+    const participantGaze = getParticipantIndexedPoints(allGazePointsWithParticipant, gazePointsByParticipant, participant);
+    const participantFixations = getParticipantIndexedPoints(allFixationPointsWithParticipant, fixationPointsByParticipant, participant);
 
     // Filtrar gaze points
-    const filteredGaze = allGazePointsWithParticipant.filter(point => {
-        // if (point.participante !== participant) return false;
-        if (Number(point.participante) !== Number(participant)) return false;
-        // Los tiempos pueden estar en segundos o milisegundos, probar ambos
-        const timeInSeconds = point.time < 100 ? point.time : point.time / 1000;
+    const filteredGaze = participantGaze.filter(point => {
+        const timeInSeconds = Number.isFinite(point.timeSec)
+            ? point.timeSec
+            : (point.time < 100 ? point.time : point.time / 1000);
         return timeInSeconds >= startSec && timeInSeconds <= endSec;
     });
 
     // Filtrar fixation points
-    const filteredFixations = allFixationPointsWithParticipant.filter(point => {
-        if (point.participante !== participant) return false;
-        // Los tiempos pueden estar en segundos o milisegundos
-        const startInSeconds = point.start < 100 ? point.start : point.start / 1000;
-        const endInSeconds = point.end < 100 ? point.end : point.end / 1000;
+    const filteredFixations = participantFixations.filter(point => {
+        const startInSeconds = Number.isFinite(point.startSec)
+            ? point.startSec
+            : (point.start < 100 ? point.start : point.start / 1000);
+        const endInSeconds = Number.isFinite(point.endSec)
+            ? point.endSec
+            : (point.end < 100 ? point.end : point.end / 1000);
 
         // Check if fixation overlaps with segment time range
         return (startInSeconds >= startSec && startInSeconds <= endSec) ||
@@ -322,7 +341,7 @@ function showPointsForScarfSegment(segment) {
                (startInSeconds <= startSec && endInSeconds >= endSec);
     });
 
-    console.log(`Found ${filteredGaze.length} gaze points, ${filteredFixations.length} fixation points`);
+    scarfLog(`Found ${filteredGaze.length} gaze points, ${filteredFixations.length} fixation points`);
 
     // Actualizar puntos actuales
     currentGazePoints = filteredGaze;
@@ -378,7 +397,7 @@ function showPointsForScarfSegment(segment) {
             height: (maxY - minY) * scaleY
         };
 
-        console.log('Bounding box:', boundingBox);
+        scarfLog('Bounding box:', boundingBox);
 
         // Crear overlay con bounding box
         createBoundingBoxOverlay(boundingBox);
@@ -461,7 +480,7 @@ function highlightScarfSegmentsForArea(areaData) {
         }
     });
 
-    console.log(`Area-driven scarf highlight: ${highlightedCount} segmentos`);
+    scarfLog(`Area-driven scarf highlight: ${highlightedCount} segmentos`);
 }
 
 function clearScarfAreaSelectionHighlight() {
@@ -759,3 +778,4 @@ function showScarfError(message) {
             const container = document.getElementById('scarf-plot');
             container.innerHTML = `<p style="text-align: center; color: #999;">${message}</p>`;
 }
+

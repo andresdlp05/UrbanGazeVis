@@ -13,13 +13,14 @@ from scipy.ndimage import gaussian_filter
 from sklearn.manifold import TSNE
 import umap
 from sklearn.manifold import MDS
+from app.shared.logging_utils import debug_log, error_log
 
 # Importar servicio de caché para t-SNE
 try:
     from app.shared.tsne_cache_service import get_tsne_cache
-    print("OK: ByParticipant: Servicio de cache t-SNE HABILITADO")
+    debug_log("OK: ByParticipant: Servicio de cache t-SNE HABILITADO")
 except ImportError as e:
-    print("ADVERTENCIA: ByParticipant: Servicio de cache t-SNE no disponible:", str(e))
+    error_log("ADVERTENCIA: ByParticipant: Servicio de cache t-SNE no disponible:", str(e))
     get_tsne_cache = None
 
 by_participant_bp = Blueprint('by_participant', __name__)
@@ -46,31 +47,31 @@ class ByParticipantController:
             # Cargar CSV de gaze tracking
             full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
             self.data = pd.read_csv(full_path)
-            print(f"By Participant data loaded: {len(self.data)} rows")
+            debug_log(f"By Participant data loaded: {len(self.data)} rows")
 
             # Cargar JSON con información de imágenes y participantes
             scores_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.scores_path)
             if os.path.exists(scores_full_path):
                 with open(scores_full_path, 'r') as f:
                     self.scores_data = json.load(f)
-                print(f"Scores data loaded: {len(self.scores_data)} images")
+                debug_log(f"Scores data loaded: {len(self.scores_data)} images")
             else:
-                print(f"Scores file not found at: {scores_full_path}")
+                debug_log(f"Scores file not found at: {scores_full_path}")
 
             # Cargar vectores/embeddings de imágenes
             vectors_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.vectors_path)
             if os.path.exists(vectors_full_path):
                 with open(vectors_full_path, 'r') as f:
                     self.vectors_data = json.load(f)
-                print(f"Vectors data loaded: {len(self.vectors_data)} images")
+                debug_log(f"Vectors data loaded: {len(self.vectors_data)} images")
             else:
-                print(f"Vectors file not found at: {vectors_full_path}")
+                debug_log(f"Vectors file not found at: {vectors_full_path}")
 
             # Cargar datos de segmentación
             segmentations_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.segmentations_path)
             if os.path.exists(segmentations_full_path):
                 self.segmentations_data = pd.read_csv(segmentations_full_path, sep=';')
-                print(f"Segmentations data loaded: {len(self.segmentations_data)} rows")
+                debug_log(f"Segmentations data loaded: {len(self.segmentations_data)} rows")
                 # Limpiar columnas con todos los valores < 20.0 después de la fila 4 (menos agresivo)
                 exclude_cols = ["image_id", "seg_image_path", "seg_overlay_image_path", "mask_path"]
                 candidate_cols = self.segmentations_data.columns.difference(exclude_cols)
@@ -80,20 +81,20 @@ class ByParticipantController:
                 ]
                 if cols_all_zero:
                     self.segmentations_data = self.segmentations_data.drop(columns=cols_all_zero)
-                    print(f"Removed {len(cols_all_zero)} sparse segmentation columns")
+                    debug_log(f"Removed {len(cols_all_zero)} sparse segmentation columns")
             else:
-                print(f"Segmentations file not found at: {segmentations_full_path}")
+                debug_log(f"Segmentations file not found at: {segmentations_full_path}")
 
             # Cargar caché de saliency coverage pre-calculado
             saliency_cache_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.saliency_cache_path)
             if os.path.exists(saliency_cache_full_path):
                 self.saliency_cache = pd.read_csv(saliency_cache_full_path)
-                print(f" Saliency coverage cache loaded: {len(self.saliency_cache)} records")
+                debug_log(f" Saliency coverage cache loaded: {len(self.saliency_cache)} records")
             else:
-                print(f" Saliency coverage cache not found at: {saliency_cache_full_path}")
-                print("   Run 'python precalculate_saliency_coverage.py' to generate it")
+                debug_log(f" Saliency coverage cache not found at: {saliency_cache_full_path}")
+                debug_log("   Run 'python precalculate_saliency_coverage.py' to generate it")
         except Exception as e:
-            print(f"Error loading by_participant data: {e}")
+            error_log(f"Error loading by_participant data: {e}")
 
     def get_participants(self):
         """Obtiene lista de participantes únicos de data_hololens.json"""
@@ -275,7 +276,7 @@ class ByParticipantController:
             }
 
         except Exception as e:
-            print(f"Error calculating heatmap for participant {participant_id}: {e}")
+            error_log(f"Error calculating heatmap for participant {participant_id}: {e}")
             return {'error': str(e)}
 
     def generate_heatmap(self, fixations, img_width=800, img_height=600, sigma=24):
@@ -333,7 +334,7 @@ class ByParticipantController:
 
             return saliency_coverage, binary_map
         except Exception as e:
-            print(f"Error calculating saliency coverage: {e}")
+            error_log(f"Error calculating saliency coverage: {e}")
             return 0.0, None
 
     def calculate_stationary_entropy(self, heatmap):
@@ -360,7 +361,7 @@ class ByParticipantController:
 
             return float(entropy)
         except Exception as e:
-            print(f"Error calculating entropy: {e}")
+            error_log(f"Error calculating entropy: {e}")
             return 0.0
 
     def get_saliency_coverage_data(self, participant_id):
@@ -406,7 +407,7 @@ class ByParticipantController:
 
         except Exception as e:
             import traceback
-            print(f"Error loading saliency coverage for participant {participant_id}: {e}")
+            error_log(f"Error loading saliency coverage for participant {participant_id}: {e}")
             traceback.print_exc()
             return {'error': str(e)}
 
@@ -448,7 +449,7 @@ class ByParticipantController:
                 score_entries = vector_info['score_participant']
                 idx = [x['participant'] for x in score_entries].index(participant_id)
                 scores.append(score_entries[idx]['score'])
-                print(img_name, vector_info['placesnet_embedding'][0], len(vector_info['placesnet_embedding']))
+                debug_log(img_name, vector_info['placesnet_embedding'][0], len(vector_info['placesnet_embedding']))
 
             if len(embeddings) == 0:
                 return {'error': f'No embedding data for participant {participant_id}'}
@@ -467,9 +468,9 @@ class ByParticipantController:
                 projection = np.column_stack([cached_result['x'], cached_result['y']])
                 cached_image_names = cached_result.get('image_names')
                 cached_scores = cached_result.get('scores')
-                print(f"[t-SNE LOGGING] Cache HIT para participante {participant_id}")
+                debug_log(f"[t-SNE LOGGING] Cache HIT para participante {participant_id}")
             else:
-                print(f"[t-SNE LOGGING] Computing t-SNE projection for participante {participant_id} with {len(embeddings)} images...")
+                debug_log(f"[t-SNE LOGGING] Computing t-SNE projection for participante {participant_id} with {len(embeddings)} images...")
                 tsne = TSNE(n_components=2, init='pca', random_state=42)
                 # tsne = umap.UMAP(random_state=42)
                 # tsne = MDS(n_components=2,dissimilarity="euclidean",random_state=42,metric=True)
@@ -510,7 +511,7 @@ class ByParticipantController:
 
         except Exception as e:
             import traceback
-            print(f"Error calculating embedding projection for participant {participant_id}: {e}")
+            error_log(f"Error calculating embedding projection for participant {participant_id}: {e}")
             traceback.print_exc()
             return {'error': str(e)}
 
@@ -557,4 +558,6 @@ def get_saliency_coverage_for_participant(participant_id):
     """Obtiene datos de saliency coverage para un participante"""
     data = by_participant_controller.get_saliency_coverage_data(participant_id)
     return jsonify(data)
+
+
 

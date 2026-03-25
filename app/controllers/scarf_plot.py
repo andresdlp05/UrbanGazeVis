@@ -10,12 +10,13 @@ from flask import Blueprint, jsonify, request
 import os
 from app.services.fixation_detection_ivt import get_fixations_ivt
 from app.shared.cache import cache
+from app.shared.logging_utils import debug_log, error_log
 
 try:
     from app.shared.data_service import get_data_service
-    print("OK: ScarfPlot: Servicio compartido de datos HABILITADO")
+    debug_log("OK: ScarfPlot: Servicio compartido de datos HABILITADO")
 except ImportError as e:
-    print("ADVERTENCIA: ScarfPlot: Servicio compartido no disponible:", str(e))
+    error_log("ADVERTENCIA: ScarfPlot: Servicio compartido no disponible:", str(e))
     get_data_service = None
 
 scarf_bp = Blueprint('scarf_plot', __name__)
@@ -38,7 +39,7 @@ class ScarfPlotController:
                 if os.path.exists(full_path):
                     self.data = pd.read_csv(full_path)
         except Exception as e:
-            print(f"Error cargando datos scarf: {e}")
+            error_log(f"Error cargando datos scarf: {e}")
 
     def get_valid_participants_for_image(self, image_id):
         if self.scores_data is None: return []
@@ -93,7 +94,7 @@ class ScarfPlotController:
                 for cls, color in zip(df_colores[class_column], df_colores[color_column])
             }
                 
-            print(f"DEBUG ScarfPlot Mapping: {len(dynamic_color_mapping)} colores mapeados.")
+            debug_log(f"DEBUG ScarfPlot Mapping: {len(dynamic_color_mapping)} colores mapeados.")
             # ==========================================================
 
             valid_participants = self.get_valid_participants_for_image(image_id)
@@ -184,26 +185,29 @@ class ScarfPlotController:
 
                     segments = []
                     curr = None
+                    time_values = pd.to_numeric(p_data['Time'], errors='coerce').to_numpy(dtype=float)
+                    normalized_times = ((time_values - float(min_time)) / float(tr)) * 15000.0
+                    class_values = p_data[class_column].to_numpy()
 
-                    for row in p_data[['Time', class_column]].to_dict('records'):
-                        norm_time = ((row['Time'] - min_time) / tr) * 15000
-
-                        # Limpiamos antes de buscar
-                        cls = self.clean_class_name(row[class_column])
+                    for norm_time, raw_time, raw_class in zip(normalized_times, time_values, class_values):
+                        cls = self.clean_class_name(raw_class)
                         color = dynamic_color_mapping.get(cls, '#999999')
 
                         if curr is None or curr['class'] != cls:
-                            if curr: segments.append(curr)
-                            #curr = {'class': cls, 'start_time': float(norm_time), 'end_time': float(norm_time), 'points': 1, 'color': color}
-                            curr = {'class': cls, 'start_time': float(norm_time), 'end_time': float(norm_time), 'start_time_real': float(row['Time']- min_time), 'end_time_real': float(row['Time']- min_time), 'points': 1, 'color': color}
-
+                            if curr:
+                                segments.append(curr)
+                            curr = {
+                                'class': cls,
+                                'start_time': float(norm_time),
+                                'end_time': float(norm_time),
+                                'start_time_real': float(raw_time - min_time),
+                                'end_time_real': float(raw_time - min_time),
+                                'points': 1,
+                                'color': color
+                            }
                         else:
-                            # curr['end_time'] = float(norm_time)
-                            # curr['points'] += 1
                             curr['end_time'] = float(norm_time)
-                            #curr['end_time_real'] = float(row['Time'])
-                            curr['end_time_real'] = float(row['Time'] - min_time)
-
+                            curr['end_time_real'] = float(raw_time - min_time)
                             curr['points'] += 1
                     if curr: segments.append(curr)
 

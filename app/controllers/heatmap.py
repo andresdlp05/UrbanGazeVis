@@ -10,21 +10,22 @@ import os
 import json
 from app.services.fixation_detection_ivt import get_fixations_ivt
 from app.shared.cache import cache
+from app.shared.logging_utils import debug_log, error_log
 
 # Importar servicio compartido de datos
 try:
     from app.shared.data_service import get_data_service
-    print("OK: Heatmap: Servicio compartido de datos HABILITADO")
+    debug_log("OK: Heatmap: Servicio compartido de datos HABILITADO")
 except ImportError as e:
-    print("ADVERTENCIA: Heatmap: Servicio compartido no disponible:", str(e))
+    error_log("ADVERTENCIA: Heatmap: Servicio compartido no disponible:", str(e))
     get_data_service = None
 
 # Importar servicio de fixations pre-calculadas
 try:
     from app.shared.precomputed_fixation_service import get_precomputed_service
-    print("OK: Heatmap: Servicio de fixations pre-calculadas HABILITADO")
+    debug_log("OK: Heatmap: Servicio de fixations pre-calculadas HABILITADO")
 except ImportError as e:
-    print("ADVERTENCIA: Heatmap: Servicio de fixations pre-calculadas no disponible:", str(e))
+    error_log("ADVERTENCIA: Heatmap: Servicio de fixations pre-calculadas no disponible:", str(e))
     get_precomputed_service = None
 
 heatmap_bp = Blueprint('heatmap', __name__)
@@ -45,23 +46,23 @@ class HeatmapController:
                 self.data = self.data_service.get_main_data()
                 self.scores_data = self.data_service.get_scores_data()
                 if self.data is not None:
-                    print(f"OK: HeatmapController: Datos cargados desde DataService ({len(self.data)} puntos de gaze)")
+                    debug_log(f"OK: HeatmapController: Datos cargados desde DataService ({len(self.data)} puntos de gaze)")
                 if self.scores_data is not None:
-                    print(f"OK: HeatmapController: Scores cargados desde DataService ({len(self.scores_data)} imagenes)")
+                    debug_log(f"OK: HeatmapController: Scores cargados desde DataService ({len(self.scores_data)} imagenes)")
             else:
                 # Fallback: cargar manualmente si DataService no está disponible
                 full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
                 self.data = pd.read_csv(full_path)
-                print(f"ADVERTENCIA: HeatmapController: Datos cargados localmente ({len(self.data)} puntos de gaze)")
+                error_log(f"ADVERTENCIA: HeatmapController: Datos cargados localmente ({len(self.data)} puntos de gaze)")
 
                 scores_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'data_hololens.json')
                 if os.path.exists(scores_path):
                     with open(scores_path, 'r') as f:
                         self.scores_data = json.load(f)
-                    print(f"ADVERTENCIA: HeatmapController: Scores cargados localmente ({len(self.scores_data)} imagenes)")
+                    error_log(f"ADVERTENCIA: HeatmapController: Scores cargados localmente ({len(self.scores_data)} imagenes)")
 
         except Exception as e:
-            print(f"Error cargando datos heatmap: {e}")
+            error_log(f"Error cargando datos heatmap: {e}")
 
     def get_valid_participants_for_image(self, image_id):
         """Obtiene los 10 participantes oficiales para una imagen"""
@@ -91,7 +92,7 @@ class HeatmapController:
             Dict con la matriz de densidad/tiempo y metadatos
         """
         # image_id ahora es ImageName directamente (0-149)
-        print(f"HeatmapController.get_heatmap_data(image_id={image_id}, data_type={data_type}, dataset_select={dataset_select})")
+        debug_log(f"HeatmapController.get_heatmap_data(image_id={image_id}, data_type={data_type}, dataset_select={dataset_select})")
 
         # Obtener el DataFrame correcto según dataset_select
         if hasattr(self, 'data_service') and self.data_service:
@@ -122,7 +123,7 @@ class HeatmapController:
             color_column = 'hex_color'
             ratio_column = 'ratio'
 
-        print(f"  Using columns: class={class_column}, color={color_column}")
+        debug_log(f"  Using columns: class={class_column}, color={color_column}")
 
         try:
             # Obtener los 10 participantes oficiales
@@ -148,12 +149,12 @@ class HeatmapController:
             if len(df_filtered) == 0:
                 return {'error': f'No classified data for image {image_id}'}
 
-            print(f"DEBUG: df_filtered has {len(df_filtered)} points after classification filter")
-            print(f"DEBUG: Sample {class_column} values: {df_filtered[class_column].unique()[:5]}")
+            debug_log(f"DEBUG: df_filtered has {len(df_filtered)} points after classification filter")
+            debug_log(f"DEBUG: Sample {class_column} values: {df_filtered[class_column].unique()[:5]}")
 
             # Si se solicita procesar fixations, detectarlas primero
             if data_type == 'fixations':
-                print(f"Processing heatmap data as FIXATIONS")
+                debug_log(f"Processing heatmap data as FIXATIONS")
 
                 # PRIORIDAD 1: Intentar usar fijaciones pre-calculadas
                 fixations_list = []
@@ -168,15 +169,15 @@ class HeatmapController:
                             valid_set = set(valid_participants)
                             filtered_fix = [f for f in all_fix if f.get('participante') in valid_set]
                             if filtered_fix:
-                                print(f"✓ Usando {len(filtered_fix)} fijaciones PRE-CALCULADAS")
+                                debug_log(f"✓ Usando {len(filtered_fix)} fijaciones PRE-CALCULADAS")
                                 fixations_list = filtered_fix
                                 use_precomputed = True
                     except Exception as e:
-                        print(f" Error usando fixations pre-calculadas: {e}")
+                        debug_log(f" Error usando fixations pre-calculadas: {e}")
 
                 # FALLBACK: Si no hay pre-calculadas, usar I-VT en tiempo real
                 if not use_precomputed:
-                    print(f" Calculando fijaciones en TIEMPO REAL con I-VT")
+                    debug_log(f" Calculando fijaciones en TIEMPO REAL con I-VT")
                     fixations_result = get_fixations_ivt(
                         data=df_filtered,
                         participant_id=None,
@@ -188,7 +189,7 @@ class HeatmapController:
                     )
                     fixations_list = fixations_result.get('fixations', [])
 
-                print(f"Total fixations para heatmap: {len(fixations_list)}")
+                debug_log(f"Total fixations para heatmap: {len(fixations_list)}")
 
                 if not fixations_list:
                     return {'error': f'No fixations detected for image {image_id}'}
@@ -245,11 +246,11 @@ class HeatmapController:
                     }
                     data_to_process.append(data_row)
 
-                    print(f"Fixation P{participant_id}: ({x_centroid:.1f}, {y_centroid:.1f}) -> {class_column}={class_value}, duration={duration:.3f}s")
+                    debug_log(f"Fixation P{participant_id}: ({x_centroid:.1f}, {y_centroid:.1f}) -> {class_column}={class_value}, duration={duration:.3f}s")
 
                 # Crear dataframe con los datos para procesar
                 df_sorted = pd.DataFrame(data_to_process)
-                print(f"Converted {len(df_sorted)} fixations to processable format")
+                debug_log(f"Converted {len(df_sorted)} fixations to processable format")
             else:
                 # Procesar como gaze points (código original)
                 # Ordenar por participante, imagen y tiempo
@@ -270,12 +271,12 @@ class HeatmapController:
                     df_sorted['delta_t'] = 0.0
 
             # Agrupar por (participante, class_column) y sumar delta_t
-            print(f"DEBUG: df_sorted has {len(df_sorted)} rows before groupby")
-            print(f"DEBUG: df_sorted columns: {list(df_sorted.columns)}")
-            print(f"DEBUG: df_sorted has {class_column}: {class_column in df_sorted.columns}")
+            debug_log(f"DEBUG: df_sorted has {len(df_sorted)} rows before groupby")
+            debug_log(f"DEBUG: df_sorted columns: {list(df_sorted.columns)}")
+            debug_log(f"DEBUG: df_sorted has {class_column}: {class_column in df_sorted.columns}")
             if len(df_sorted) > 0:
-                print(f"DEBUG: Sample delta_t values: {df_sorted['delta_t'].head()}")
-                print(f"DEBUG: Sample {class_column} values in df_sorted: {df_sorted[class_column].unique()[:5]}")
+                debug_log(f"DEBUG: Sample delta_t values: {df_sorted['delta_t'].head()}")
+                debug_log(f"DEBUG: Sample {class_column} values in df_sorted: {df_sorted[class_column].unique()[:5]}")
 
             por_participante_clase = (
                 df_sorted
@@ -285,7 +286,7 @@ class HeatmapController:
                 .rename(columns={'delta_t': 'time_por_clase'})
             )
 
-            print(f"DEBUG: por_participante_clase has {len(por_participante_clase)} rows after groupby")
+            debug_log(f"DEBUG: por_participante_clase has {len(por_participante_clase)} rows after groupby")
 
             if ratio_column in df_filtered.columns:
                 ratio_por_clase = (
@@ -298,7 +299,7 @@ class HeatmapController:
             else:
                 ratio_por_clase = {}
 
-            print(f"DEBUG: ratio_por_clase has {len(ratio_por_clase)} entries")
+            debug_log(f"DEBUG: ratio_por_clase has {len(ratio_por_clase)} entries")
 
             # Decidir las clases a mostrar BASADO EN TIEMPO TOTAL (consistente entre modos)
             # Obtener top N clases por tiempo total en la imagen
@@ -354,8 +355,8 @@ class HeatmapController:
             # =========================================================
 
             # Crear matriz: filas=class_column, columnas=participantes
-            print('POR IMAGEN CLASE HEATMAP')
-            # print(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
+            debug_log('POR IMAGEN CLASE HEATMAP')
+            # debug_log(por_participante_clase_top.loc[por_participante_clase_top['participante'] == 16])
 
             # SELECCIÓN DINÁMICA DEL MODO DE VISUALIZACIÓN
             if mode == 'attention':
@@ -385,9 +386,9 @@ class HeatmapController:
                     matriz[p] = 0.0
             matriz = matriz[sorted(valid_participants, reverse=True)]
 
-            print(f"[HEATMAP DEBUG] mode={mode}, top_clases count={len(top_clases)}, top_clases={top_clases}")
-            print(f"[HEATMAP DEBUG] matriz shape={matriz.shape}")
-            print(f"[HEATMAP DEBUG] matrix_raw will have {len(top_clases)} rows")
+            debug_log(f"[HEATMAP DEBUG] mode={mode}, top_clases count={len(top_clases)}, top_clases={top_clases}")
+            debug_log(f"[HEATMAP DEBUG] matriz shape={matriz.shape}")
+            debug_log(f"[HEATMAP DEBUG] matrix_raw will have {len(top_clases)} rows")
 
             # Normalizar matriz para visualización (0-1)
             matriz_norm = matriz.copy()
@@ -436,7 +437,7 @@ def get_heatmap(image_id):
     
     mode = request.args.get('mode', 'attention').lower()
     
-    print(f"[DEBUG API] get_heatmap: image={image_id}, data={data_type}, dataset={dataset_select}, mode={mode}")
+    debug_log(f"[DEBUG API] get_heatmap: image={image_id}, data={data_type}, dataset={dataset_select}, mode={mode}")
     
     data = heatmap_controller.get_heatmap_data(
         image_id=image_id, 
@@ -446,4 +447,6 @@ def get_heatmap(image_id):
         mode=mode
     )
     return jsonify(data)
+
+
 

@@ -1,14 +1,16 @@
+const heatmapLog = window.debugLog || function(...args) { if (window.DEBUG_LOGS) { console.log(...args); } };
+
 // heatmap-viz.js — heatmap visualization, highlights, legend
 
 function visualizeHeatmap(data) {
     const container = document.getElementById('heatmap-plot');
     container.innerHTML = '';
 
-    console.log('=== visualizeHeatmap ===');
-    console.log('Data received - Classes count:', data.classes.length);
-    console.log('Classes:', data.classes);
-    console.log('Matrix raw rows:', data.matrix_raw.length);
-    console.log('Matrix raw first row:', data.matrix_raw[0]);
+    heatmapLog('=== visualizeHeatmap ===');
+    heatmapLog('Data received - Classes count:', data.classes.length);
+    heatmapLog('Classes:', data.classes);
+    heatmapLog('Matrix raw rows:', data.matrix_raw.length);
+    heatmapLog('Matrix raw first row:', data.matrix_raw[0]);
 
     if (!data.matrix_normalized || data.matrix_normalized.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: #999;">No data available</p>';
@@ -17,7 +19,7 @@ function visualizeHeatmap(data) {
 
     if (data.class_colors) {
         classColorMap = { ...data.class_colors };
-        console.log('Updated classColorMap:', classColorMap);
+        heatmapLog('Updated classColorMap:', classColorMap);
     }
 
     // 1. Setup dimensions
@@ -60,9 +62,9 @@ function visualizeHeatmap(data) {
         return classSums[b] - classSums[a];
     });
 
-    console.log('Class scores:', classScores);
-    console.log('Class sums:', classSums);
-    console.log('Sorted classes:', sortedClasses);
+    heatmapLog('Class scores:', classScores);
+    heatmapLog('Class sums:', classSums);
+    heatmapLog('Sorted classes:', sortedClasses);
 
     // 2. Create Scales
     const xScale = d3.scaleBand()
@@ -75,16 +77,16 @@ function visualizeHeatmap(data) {
         .range([0, height])
         .padding(0.0);
 
-    console.log('yScale domain:', yScale.domain());
-    console.log('yScale domain length:', yScale.domain().length);
+    heatmapLog('yScale domain:', yScale.domain());
+    heatmapLog('yScale domain length:', yScale.domain().length);
 
     // Color Scale - usar valores sin normalizar (rawValue)
     const minRawValue = data.min_value || 0;
     const maxRawValue = data.max_value || 1;
 
-    console.log('[HEATMAP DEBUG] visualizeHeatmap Color Scale:');
-    console.log('  - min_value from backend:', data.min_value);
-    console.log('  - max_value from backend:', data.max_value);
+    heatmapLog('[HEATMAP DEBUG] visualizeHeatmap Color Scale:');
+    heatmapLog('  - min_value from backend:', data.min_value);
+    heatmapLog('  - max_value from backend:', data.max_value);
 
     const colorScale = d3.scaleSequential()
         .domain([minRawValue, maxRawValue])  // Rango de valores crudos
@@ -106,9 +108,9 @@ function visualizeHeatmap(data) {
         });
     });
 
-    console.log('heatmapData length:', heatmapData.length);
-    console.log('Expected data points:', data.classes.length * data.participants.length);
-    console.log('Classes in heatmapData:', [...new Set(heatmapData.map(d => d.row))].length);
+    heatmapLog('heatmapData length:', heatmapData.length);
+    heatmapLog('Expected data points:', data.classes.length * data.participants.length);
+    heatmapLog('Classes in heatmapData:', [...new Set(heatmapData.map(d => d.row))].length);
 
     // 4. Draw Cells - usar rawValue (sin normalizar)
     svg.selectAll('rect')
@@ -243,7 +245,7 @@ function visualizeHeatmap(data) {
                 window.selectedClass = d;
             }
             updateHighlights();
-            console.log("Selected Class:", window.selectedClass);
+            heatmapLog("Selected Class:", window.selectedClass);
         });
 
     // Initialize state in case of re-render
@@ -346,8 +348,8 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 
     // Guardar datos globalmente para acceso posterior
     window.currentAttentionHeatmapData = data;
-    console.log('ATTENTION HEATMAP DATA');
-    console.log(data);
+    heatmapLog('ATTENTION HEATMAP DATA');
+    heatmapLog(data);
     // 2. Setup Dimensions
     const margin = { top: 15, right: 20, bottom: 50, left: 120 }; // Increased margins for axis labels
     let containerWidth = container.clientWidth;
@@ -373,8 +375,8 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     const imageScoresMap = {};  // Mapeo de ImageIndex -> score
     const sortedImages = data.image_scores.sort((a, b) => a[1] - b[1]);
     // 4. Scales and Bandwidth (Key Update)
-    console.log('SORTED IMAGES');
-    console.log(sortedImages);
+    heatmapLog('SORTED IMAGES');
+    heatmapLog(sortedImages);
     // Color Scale (YlOrRd - Yellow-Orange-Red)
     /*const colorScale = d3.scaleLinear()
         .domain([0, 0.5, 1])
@@ -490,9 +492,9 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
             // d.imageName es el ImageName (número real de imagen, ej: 114)
             const imageName = d.imageName;
 
-            console.log(`=== CELL CLICKED ===`);
-            console.log(`d.imageName (ImageName): ${imageName}`);
-            console.log(`Loading image: ${imageName}`);
+            heatmapLog(`=== CELL CLICKED ===`);
+            heatmapLog(`d.imageName (ImageName): ${imageName}`);
+            heatmapLog(`Loading image: ${imageName}`);
 
             if (imageName !== undefined) {
                 // Pass ONLY the imageName, not imageIndex
@@ -673,9 +675,9 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 function loadHeatmap(imageId, dataType = 'gaze', mode = 'attention') {
     const baseUrl = window.location.origin;
     const apiUrl = `${baseUrl}/api/heatmap/${imageId}?data_type=${dataType}&dataset_select=${currentDatasetSelect}&mode=${mode}`;
-    console.log(`=== LOADING HEATMAP ===`);
-    console.log(`API URL: ${apiUrl}`);
-    console.log(`Parameters: imageId=${imageId}, dataType=${dataType}, currentDatasetSelect=${currentDatasetSelect}, mode=${mode}`);
+    heatmapLog(`=== LOADING HEATMAP ===`);
+    heatmapLog(`API URL: ${apiUrl}`);
+    heatmapLog(`Parameters: imageId=${imageId}, dataType=${dataType}, currentDatasetSelect=${currentDatasetSelect}, mode=${mode}`);
     fetch(apiUrl)
         .then(response => {
                     if (!response.ok) {
@@ -688,7 +690,7 @@ function loadHeatmap(imageId, dataType = 'gaze', mode = 'attention') {
                         console.error('Error en respuesta:', data.error);
                         showHeatmapError(data.error);
                     } else {
-                        console.log(`Heatmap data loaded (${dataType}, mode=${mode}):`, data);
+                        heatmapLog(`Heatmap data loaded (${dataType}, mode=${mode}):`, data);
                         visualizeHeatmap(data);
                         // updateHeatmapLegend(data);
                     }
@@ -713,7 +715,7 @@ function loadAttentionHeatmap(participantId) {
             if (data.error) {
                 console.error('Error en respuesta:', data.error);
             } else {
-                console.log(`Heatmap data loaded:`, data);
+                heatmapLog(`Heatmap data loaded:`, data);
                 var normChecked = document.getElementById('heatmap-normalize').checked;
                 attentionHeatmapData = data;
                 visualizeAttentionHeatmap(data, normChecked);
@@ -849,7 +851,7 @@ function highlightHeatmapAreaEntities(areaData) {
 }
 
 function highlightParticipantColumnInHeatmap(participantId) {
-    console.log('Highlighting participant column:', participantId);
+    heatmapLog('Highlighting participant column:', participantId);
 
     d3.select('#heatmap-participant-highlight').remove();
 
@@ -901,7 +903,7 @@ function highlightParticipantColumnInHeatmap(participantId) {
         .style('pointer-events', 'none')
         .style('opacity', 0.8);
 
-    console.log('Participant column highlighted at x:', rectX, 'width:', rectWidth, 'height:', totalHeight);
+    heatmapLog('Participant column highlighted at x:', rectX, 'width:', rectWidth, 'height:', totalHeight);
 }
 
 // Remover highlight de columna de participante
@@ -1099,3 +1101,4 @@ function updateHighlightsGlobal() {
         syncSegmentationLayerImage();
     }
 }
+

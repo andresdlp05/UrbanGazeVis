@@ -6,6 +6,7 @@ from app.controllers.scarf_plot import *
 from app.controllers.by_participant import *
 from app.controllers.glyph import glyph_bp
 from app.services.fixation_detection_ivt import get_fixations_ivt
+from app.services.overlay_precompute_service import get_overlay_precompute_service
 from app.shared.ivt_cache_service import get_ivt_cache_service
 import random
 import json
@@ -13,6 +14,13 @@ import os
 import math
 import pandas as pd
 import numpy as np
+
+BACKEND_DEBUG_LOGS = str(os.environ.get('BACKEND_DEBUG_LOGS', '0')).lower() in ['1', 'true', 'yes']
+
+
+def backend_log(*args, **kwargs):
+    if BACKEND_DEBUG_LOGS:
+        print(*args, **kwargs)
 
 app = Flask(__name__)
 cache.init_app(app, config={
@@ -106,6 +114,8 @@ gaze_min_time_cache      = _svc.gaze_min_time_cache
 ivt_min_time_cache       = _svc.ivt_min_time_cache
 participant_scores_cache = _svc.participant_scores
 imagename_to_index       = _svc.imagename_to_index
+overlay_precompute_service = get_overlay_precompute_service()
+overlay_precompute_service.configure_sources(gaze_data_by_image, ivt_cache_by_image)
 
 @app.route('/api/heatmap/<int:image_id>', methods=['GET'])
 def get_heatmap(image_id):
@@ -128,7 +138,7 @@ def get_heatmap(image_id):
         mode = 'attention'
 
     # image_id es ImageName directamente (0-149)
-    print(f"GET /api/heatmap/{image_id} - data_type: {data_type}, dataset_select: {dataset_select}, mode: {mode}")
+    backend_log(f"GET /api/heatmap/{image_id} - data_type: {data_type}, dataset_select: {dataset_select}, mode: {mode}")
     data = heatmap_controller.get_heatmap_data(image_id, top_n, data_type, dataset_select, mode=mode)
     return jsonify(data)
 
@@ -175,7 +185,7 @@ def get_scarf_plot(image_id):
         dataset_select = 'main_class'
 
     # image_id es ImageName directamente (0-149)
-    print(f"GET /api/scarf-plot/{image_id} - data_type: {data_type}, dataset_select: {dataset_select}")
+    backend_log(f"GET /api/scarf-plot/{image_id} - data_type: {data_type}, dataset_select: {dataset_select}")
     data = scarf_controller.get_scarf_plot_data(image_id, participant_id, data_type, dataset_select)
     return jsonify(data)
 
@@ -239,15 +249,19 @@ def get_gaze_data(image_id):
         if len(image_gaze_data) == 0:
             return jsonify({'points': []})
 
-        # Extraer coordenadas de píxeles
-        points = []
-        for _, row in image_gaze_data.iterrows():
-            x = float(row.get('pixelX', 0))
-            y = float(row.get('pixelY', 0))
-
-            # Validar que sean números válidos y no cero (muchos ceros son inválidos)
-            if not np.isnan(x) and not np.isnan(y) and (x > 0 or y > 0):
-                points.append({'x': float(x), 'y': float(y)})
+        # Extraer coordenadas de píxeles (vectorizado)
+        coords = image_gaze_data[['pixelX', 'pixelY']].copy()
+        coords['pixelX'] = pd.to_numeric(coords['pixelX'], errors='coerce')
+        coords['pixelY'] = pd.to_numeric(coords['pixelY'], errors='coerce')
+        valid_mask = coords['pixelX'].notna() & coords['pixelY'].notna() & (
+            (coords['pixelX'] > 0) | (coords['pixelY'] > 0)
+        )
+        points = (
+            coords.loc[valid_mask, ['pixelX', 'pixelY']]
+            .rename(columns={'pixelX': 'x', 'pixelY': 'y'})
+            .astype(float)
+            .to_dict('records')
+        )
 
         return jsonify({'points': points})
 
@@ -256,6 +270,29 @@ def get_gaze_data(image_id):
         print(f"Error getting gaze data: {e}")
         print(f"Full traceback:\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/precomputed-overlays/<int:image_id>', methods=['GET'])
+def get_precomputed_overlays(image_id):
+    """Devuelve URLs de overlays precomputados (heatmap y contour)."""
+    data_type = request.args.get('data_type', 'gaze').lower()
+    if data_type not in ['gaze', 'fixations']:
+        data_type = 'gaze'
+
+    force = str(request.args.get('force', 'false')).lower() in ['1', 'true', 'yes']
+    try:
+        result = overlay_precompute_service.generate_for_image(image_id, data_type=data_type, force=force)
+        return jsonify({
+            'image_id': image_id,
+            'data_type': data_type,
+            'heatmap_url': result.get('heatmap_url'),
+            'contour_url': result.get('contour_url'),
+            'generated': bool(result.get('generated', False)),
+            'status': 'success'
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
 @app.route('/api/analyze-area/<int:image_id>', methods=['POST'])
 def analyze_area(image_id):
@@ -324,10 +361,10 @@ def analyze_area(image_id):
 
         timings['request_parsing'] = (time.time() - t_step) * 1000
 
-        print(f"\n=== /api/analyze-area/{image_id} ===")
-        print(f"data_type parameter: {data_type}")
-        print(f"participant_id parameter: {participant_id}")
-        print(f"selection shape: {shape}")
+        backend_log(f"\n=== /api/analyze-area/{image_id} ===")
+        backend_log(f"data_type parameter: {data_type}")
+        backend_log(f"participant_id parameter: {participant_id}")
+        backend_log(f"selection shape: {shape}")
 
         # Obtener TODOS los gaze data para esta imagen
         # IMPORTANTE: image_id es el ImageName (de la URL)
@@ -340,14 +377,14 @@ def analyze_area(image_id):
         # Filtrar por participante si se especificó
         if participant_id is not None:
             image_gaze_data = image_gaze_data[image_gaze_data['participante'] == participant_id]
-            print(f"Filtering by participant: {participant_id}")
+            backend_log(f"Filtering by participant: {participant_id}")
 
         image_gaze_data = image_gaze_data.copy()
 
         timings['filter_gaze_data'] = (time.time() - t_step) * 1000
 
-        print(f"Image gaze data rows: {len(image_gaze_data)}")
-        print(f"[TIMING] Filter gaze data: {timings['filter_gaze_data']:.1f}ms")
+        backend_log(f"Image gaze data rows: {len(image_gaze_data)}")
+        backend_log(f"[TIMING] Filter gaze data: {timings['filter_gaze_data']:.1f}ms")
 
         if len(image_gaze_data) == 0:
             area_response = {
@@ -377,11 +414,12 @@ def analyze_area(image_id):
         # Procesar solo lo necesario (o ambos si include_all_data=true)
         total_gaze_points = 0
         area_gaze_points = []
+        area_gaze_df = None
         gaze_records = None
 
         if need_gaze_points:
             t_step = time.time()
-            print(f"Processing GAZE POINTS (vectorized)...")
+            backend_log(f"Processing GAZE POINTS (vectorized)...")
 
             base_gaze_columns = ['participante', 'ImageIndex', 'ImageName', 'pixelX', 'pixelY', 'Time']
             optional_semantic_columns = [
@@ -411,21 +449,23 @@ def analyze_area(image_id):
                     (gaze_records['y_centroid'] >= y) &
                     (gaze_records['y_centroid'] <= y + height)
                 )
-            area_gaze_points = gaze_records[area_mask].to_dict('records')
+            area_gaze_df = gaze_records[area_mask].copy()
+            area_gaze_points = area_gaze_df.to_dict('records')
 
             timings['gaze_processing'] = (time.time() - t_step) * 1000
-            print(f"Total gaze points in image: {total_gaze_points}")
-            print(f"Gaze points in area: {len(area_gaze_points)}")
-            print(f"[TIMING] Gaze processing: {timings['gaze_processing']:.1f}ms")
+            backend_log(f"Total gaze points in image: {total_gaze_points}")
+            backend_log(f"Gaze points in area: {len(area_gaze_points)}")
+            backend_log(f"[TIMING] Gaze processing: {timings['gaze_processing']:.1f}ms")
         else:
             timings['gaze_processing'] = 0.0
 
         total_fixations = 0
         area_fixations = []
+        area_fixations_df = None
 
         if need_fixations:
             t_step = time.time()
-            print(f"Processing FIXATIONS (from precalculated cache - vectorized)...")
+            backend_log(f"Processing FIXATIONS (from precalculated cache - vectorized)...")
 
             if ivt_cache is not None:
                 if image_id in ivt_cache_by_image:
@@ -435,7 +475,7 @@ def analyze_area(image_id):
 
                 if participant_id is not None:
                     image_fixations = image_fixations[image_fixations['participante'] == participant_id]
-                    print(f"Filtering fixations by participant: {participant_id}")
+                    backend_log(f"Filtering fixations by participant: {participant_id}")
 
                 image_fixations = image_fixations.copy()
                 total_fixations = len(image_fixations)
@@ -455,14 +495,15 @@ def analyze_area(image_id):
                             (image_fixations['y_centroid'] >= y) &
                             (image_fixations['y_centroid'] <= y + height)
                         )
-                    area_fixations = image_fixations[fix_area_mask].to_dict('records')
+                    area_fixations_df = image_fixations[fix_area_mask].copy()
+                    area_fixations = area_fixations_df.to_dict('records')
             else:
-                print("Warning: IVT cache not available, returning empty fixations")
+                backend_log("Warning: IVT cache not available, returning empty fixations")
 
             timings['fixations_processing'] = (time.time() - t_step) * 1000
-            print(f"Total fixations in image: {total_fixations}")
-            print(f"Fixations in area: {len(area_fixations)}")
-            print(f"[TIMING] Fixations processing: {timings['fixations_processing']:.1f}ms")
+            backend_log(f"Total fixations in image: {total_fixations}")
+            backend_log(f"Fixations in area: {len(area_fixations)}")
+            backend_log(f"[TIMING] Fixations processing: {timings['fixations_processing']:.1f}ms")
         else:
             timings['fixations_processing'] = 0.0
 
@@ -477,48 +518,27 @@ def analyze_area(image_id):
             fallback_series = gaze_records.groupby('participante')['Time'].min()
             participant_min_times = {int(pid): float(val) for pid, val in fallback_series.items()}
 
-        # Aplicar normalización POR PARTICIPANTE
-        def normalize_times_per_participant(data_list, time_field, participant_field='participante'):
-            """Subtract participant's min_time from time field (per-image normalization)"""
-            for item in data_list:
-                participant = item.get(participant_field)
-                time_val = item.get(time_field)
+        # Aplicar normalización POR PARTICIPANTE (vectorizado)
+        if need_gaze_points and area_gaze_df is not None and not area_gaze_df.empty:
+            participant_numeric = pd.to_numeric(area_gaze_df['participante'], errors='coerce')
+            offsets = participant_numeric.map(participant_min_times)
+            time_values = pd.to_numeric(area_gaze_df['Time'], errors='coerce')
+            valid_norm = offsets.notna() & time_values.notna()
+            area_gaze_df.loc[valid_norm, 'Time'] = (time_values[valid_norm] - offsets[valid_norm]).astype(float)
+            area_gaze_points = area_gaze_df.to_dict('records')
 
-                # Si no hay participante, no podemos normalizar
-                if participant is None or time_val is None:
-                    continue
+        if need_fixations and area_fixations_df is not None and not area_fixations_df.empty:
+            participant_numeric = pd.to_numeric(area_fixations_df['participante'], errors='coerce')
+            offsets = participant_numeric.map(participant_min_times)
+            valid_offsets = offsets.notna()
 
-                # Si no hay offset precomputado para el participante, saltar
-                if participant not in participant_min_times:
-                    continue
+            for time_col in ['start', 'end']:
+                if time_col in area_fixations_df.columns:
+                    time_vals = pd.to_numeric(area_fixations_df[time_col], errors='coerce')
+                    valid_norm = valid_offsets & time_vals.notna()
+                    area_fixations_df.loc[valid_norm, time_col] = (time_vals[valid_norm] - offsets[valid_norm]).astype(float)
 
-                try:
-                    normalized_time = float(item[time_field]) - float(participant_min_times[participant])
-                    item[time_field] = float(normalized_time)
-                except (TypeError, ValueError) as e:
-                    print(f"Warning: Could not normalize time for {time_field}: {e}, keeping original value")
-            return data_list
-
-        if need_gaze_points:
-            area_gaze_points = normalize_times_per_participant(area_gaze_points, 'Time')
-        # Normalizar fixations (POR PARTICIPANTE - start, end)
-        def normalize_fixations_per_participant(fix_list):
-            for fix in fix_list:
-                participant = fix.get('participante')
-                if participant in participant_min_times:
-                    try:
-                        if fix.get('start') is not None:
-                            normalized_start = float(fix['start']) - float(participant_min_times[participant])
-                            fix['start'] = float(normalized_start)
-                        if fix.get('end') is not None:
-                            normalized_end = float(fix['end']) - float(participant_min_times[participant])
-                            fix['end'] = float(normalized_end)
-                    except (TypeError, ValueError) as e:
-                        print(f"Warning: Could not normalize fixation times: {e}, keeping original values")
-            return fix_list
-
-        if need_fixations:
-            area_fixations = normalize_fixations_per_participant(area_fixations)
+            area_fixations = area_fixations_df.to_dict('records')
 
         timings['time_normalization'] = (time.time() - t_step) * 1000
 
@@ -546,11 +566,11 @@ def analyze_area(image_id):
         timings['participant_scores'] = (time.time() - t_step) * 1000
         timings['total'] = (time.time() - t_total_start) * 1000
 
-        print(f"DEBUG: Returning with {len(area_gaze_points)} gaze_points and {len(area_fixations)} fixations")
-        print(f"[TIMING] Data cleanup: {timings['data_cleanup']:.1f}ms")
-        print(f"[TIMING] Participant scores: {timings['participant_scores']:.1f}ms")
-        print(f"[TIMING] TOTAL API TIME: {timings['total']:.1f}ms")
-        print(f"[TIMING] Breakdown: parse={timings['request_parsing']:.1f}ms, filter_gaze={timings['filter_gaze_data']:.1f}ms, gaze_proc={timings['gaze_processing']:.1f}ms, fix_proc={timings['fixations_processing']:.1f}ms, norm_time={timings['time_normalization']:.1f}ms, cleanup={timings['data_cleanup']:.1f}ms, scores={timings['participant_scores']:.1f}ms")
+        backend_log(f"DEBUG: Returning with {len(area_gaze_points)} gaze_points and {len(area_fixations)} fixations")
+        backend_log(f"[TIMING] Data cleanup: {timings['data_cleanup']:.1f}ms")
+        backend_log(f"[TIMING] Participant scores: {timings['participant_scores']:.1f}ms")
+        backend_log(f"[TIMING] TOTAL API TIME: {timings['total']:.1f}ms")
+        backend_log(f"[TIMING] Breakdown: parse={timings['request_parsing']:.1f}ms, filter_gaze={timings['filter_gaze_data']:.1f}ms, gaze_proc={timings['gaze_processing']:.1f}ms, fix_proc={timings['fixations_processing']:.1f}ms, norm_time={timings['time_normalization']:.1f}ms, cleanup={timings['data_cleanup']:.1f}ms, scores={timings['participant_scores']:.1f}ms")
 
         area_response = {
             'shape': shape,
@@ -583,7 +603,7 @@ def analyze_area(image_id):
             }
         })
         timings['json_serialization'] = (time.time() - t_step) * 1000
-        print(f"[TIMING] JSON serialization: {timings['json_serialization']:.1f}ms")
+        backend_log(f"[TIMING] JSON serialization: {timings['json_serialization']:.1f}ms")
         return response
     except Exception as e:
         import traceback

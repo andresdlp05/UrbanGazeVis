@@ -7,6 +7,7 @@ import os
 import json
 import numpy as np
 from datetime import datetime, timedelta
+from app.shared.logging_utils import debug_log, error_log
 
 class TSNECacheService:
     """Servicio para cachear y reutilizar cálculos de t-SNE"""
@@ -42,13 +43,13 @@ class TSNECacheService:
                                     self.cache[participant_id] = tsne_result
                                     loaded_count += 1
                         except (ValueError, json.JSONDecodeError, KeyError) as e:
-                            print(f"ADVERTENCIA: Error cargando archivo {file}: {e}")
+                            error_log(f"ADVERTENCIA: Error cargando archivo {file}: {e}")
                             continue
 
                 if loaded_count > 0:
-                    print(f"TSNECache: {loaded_count} caches precalculados cargados desde disco")
+                    debug_log(f"TSNECache: {loaded_count} caches precalculados cargados desde disco")
             except Exception as e:
-                print(f"ADVERTENCIA: TSNECache: Error cargando cache desde disco: {e}")
+                error_log(f"ADVERTENCIA: TSNECache: Error cargando cache desde disco: {e}")
 
     def _ensure_cache_dir(self):
         """Asegura que existe el directorio de caché"""
@@ -76,13 +77,13 @@ class TSNECacheService:
             if isinstance(cached, dict):
                 # Formato esperado: resultado directo con x/y
                 if 'x' in cached and 'y' in cached:
-                    print(f"TSNECache HIT: Usando cache para participante {participant_id}")
+                    debug_log(f"TSNECache HIT: Usando cache para participante {participant_id}")
                     return cached
                 # Compatibilidad con estructura envuelta {'result': {...}}
                 if 'result' in cached and isinstance(cached['result'], dict):
                     nested = cached['result']
                     if 'x' in nested and 'y' in nested:
-                        print(f"TSNECache HIT (legacy): Usando cache para participante {participant_id}")
+                        debug_log(f"TSNECache HIT (legacy): Usando cache para participante {participant_id}")
                         return nested
 
         return None
@@ -113,9 +114,9 @@ class TSNECacheService:
             with open(cache_file, 'w') as f:
                 json.dump(cache_entry, f, indent=2)
 
-            print(f"✅ TSNECache: Resultado cacheado para participante {participant_id}")
+            debug_log(f"✅ TSNECache: Resultado cacheado para participante {participant_id}")
         except Exception as e:
-            print(f"⚠️ TSNECache: Error guardando caché: {e}")
+            error_log(f"⚠️ TSNECache: Error guardando caché: {e}")
 
     def clear_participant(self, participant_id):
         """Limpia caché para un participante específico"""
@@ -125,7 +126,7 @@ class TSNECacheService:
         cache_file = os.path.join(self.cache_dir, f'tsne_{participant_id}.json')
         if os.path.exists(cache_file):
             os.remove(cache_file)
-            print(f"✅ TSNECache: Caché limpiado para participante {participant_id}")
+            debug_log(f"✅ TSNECache: Caché limpiado para participante {participant_id}")
 
     def clear_all(self):
         """Limpia todo el caché"""
@@ -133,9 +134,11 @@ class TSNECacheService:
         if os.path.exists(self.cache_dir):
             import shutil
             shutil.rmtree(self.cache_dir)
-        print(f"✅ TSNECache: Todos los cachés eliminados")
+        debug_log(f"✅ TSNECache: Todos los cachés eliminados")
 
 
 def get_tsne_cache():
     """Retorna la instancia singleton del caché de t-SNE"""
     return TSNECacheService.getInstance()
+
+

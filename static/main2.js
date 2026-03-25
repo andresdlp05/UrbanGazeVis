@@ -33,6 +33,8 @@ var currentFixationPoints = []; // Puntos de fixation del área actual
 var allGazePointsWithParticipant = []; // Todos los gaze points con información de participante
 var imageScores = {}; // Scores promedio por imagen cargados desde data_hololens.json
 var allFixationPointsWithParticipant = []; // Todos los fixation points con información de participante
+var gazePointsByParticipant = new Map(); // Índice por participante para gaze points
+var fixationPointsByParticipant = new Map(); // Índice por participante para fixations
 var overlayContainer = null; // Contenedor para los puntos
 var circleSelectionState = null; // Estado del selector circular (pantalla)
 var circleSelectionDebounceTimer = null; // Debounce para análisis dinámico
@@ -45,6 +47,14 @@ const SCARF_SEGMENT_MATCH_TOLERANCE_MS = 60;
 const SCARF_AREA_DIM_OPACITY = 0.12;
 const SCARF_SEGMENT_DIM_OPACITY = 0.12;
 const SCARF_SEGMENT_HIGHLIGHT_STROKE = '#000000';
+
+window.DEBUG_LOGS = window.DEBUG_LOGS === true;
+window.debugLog = window.debugLog || function(...args) {
+    if (window.DEBUG_LOGS) {
+        console.log(...args);
+    }
+};
+const debugLog = window.debugLog;
 
 
 // Clase RadialGlyph (adaptada para tooltip)
@@ -117,7 +127,7 @@ class RadialGlyph {
             .attr("class", "ring2-group")
             .attr("transform", `translate(${this.config.width/2}, ${this.config.height/2})`);
 
-        console.log("RadialGlyph.initializeSVG: SVG reinitialized completely");
+        debugLog("RadialGlyph.initializeSVG: SVG reinitialized completely");
     }
 
     setDirectionRingVisible(visible) {
@@ -126,35 +136,35 @@ class RadialGlyph {
     }
 
     update(data) {
-        console.log("RadialGlyph.update() iniciado con datos:", data);
+        debugLog("RadialGlyph.update() iniciado con datos:", data);
         this.rawData = data; // Guardar datos originales para acceso posterior
 
         // Log información detallada sobre qué datos recibimos
-        console.log("=== RadialGlyph Data Sources ===");
-        console.log(`data_type: ${data?.data_type || 'unknown'}`);
-        console.log(`gaze_points: ${data?.gaze_points?.length || 0}`);
-        console.log(`fixations: ${data?.fixations?.length || 0}`);
-        console.log(`data_for_analysis: ${data?.data_for_analysis?.length || 0}`);
+        debugLog("=== RadialGlyph Data Sources ===");
+        debugLog(`data_type: ${data?.data_type || 'unknown'}`);
+        debugLog(`gaze_points: ${data?.gaze_points?.length || 0}`);
+        debugLog(`fixations: ${data?.fixations?.length || 0}`);
+        debugLog(`data_for_analysis: ${data?.data_for_analysis?.length || 0}`);
 
         if (data?.gaze_points && data.gaze_points.length > 0) {
-            console.log("Sample gaze point:", data.gaze_points[0]);
+            debugLog("Sample gaze point:", data.gaze_points[0]);
         }
         if (data?.fixations && data.fixations.length > 0) {
-            console.log("Sample fixation:", data.fixations[0]);
+            debugLog("Sample fixation:", data.fixations[0]);
         }
         if (data?.data_for_analysis && data.data_for_analysis.length > 0) {
-            console.log("Sample data_for_analysis:", data.data_for_analysis[0]);
+            debugLog("Sample data_for_analysis:", data.data_for_analysis[0]);
         }
 
         const processedData = this.processData(data);
-        console.log("Datos procesados:", processedData);
+        debugLog("Datos procesados:", processedData);
 
         this.renderHistogramCenter(processedData.histogramData);
         this.renderRing1(processedData.directions);
         this.renderRing2(processedData.timeData);
         this.setDirectionRingVisible(isDirectionRingVisible);
 
-        console.log("RadialGlyph.update() completado!");
+        debugLog("RadialGlyph.update() completado!");
     }
 
     processData(data) {
@@ -170,7 +180,7 @@ class RadialGlyph {
         // Default to data_for_analysis if available
         let analysisData = data.data_for_analysis || data.fixations || [];
 
-        console.log(`processData: Using ${data.data_type || 'unknown'} data with ${analysisData.length} points`);
+        debugLog(`processData: Using ${data.data_type || 'unknown'} data with ${analysisData.length} points`);
 
         const points = this.sanitizeFixations(analysisData);
         const participantScores = data.participant_scores || {};
@@ -208,13 +218,13 @@ class RadialGlyph {
             const hasValidParticipant = f.participante !== undefined && f.participante !== null;
 
             if (!hasValidCoordinates || !hasValidParticipant) {
-                console.log(`Skipping fixation - x=${f.x_centroid}, y=${f.y_centroid}, p=${f.participante}`);
+                debugLog(`Skipping fixation - x=${f.x_centroid}, y=${f.y_centroid}, p=${f.participante}`);
             }
 
             return hasValidCoordinates && hasValidParticipant;
         });
 
-        console.log(`RadialGlyph.sanitizeFixations: ${original} -> ${sanitized.length} fixations`);
+        debugLog(`RadialGlyph.sanitizeFixations: ${original} -> ${sanitized.length} fixations`);
         return sanitized;
     }
 
@@ -285,11 +295,11 @@ class RadialGlyph {
         const directions = { Arriba: 0, Derecha: 0, Abajo: 0, Izquierda: 0 };
 
         if (!fixations || fixations.length < 2) {
-            console.log("calculateDirections: Not enough fixations to calculate movement directions");
+            debugLog("calculateDirections: Not enough fixations to calculate movement directions");
             return directions;
         }
 
-        console.log(`calculateDirections: Processing movement for ${fixations.length} fixations`);
+        debugLog(`calculateDirections: Processing movement for ${fixations.length} fixations`);
 
         // 1. Sort fixations by start time to get the chronological path
         const sortedFixations = [...fixations].sort((a, b) => {
@@ -336,7 +346,7 @@ class RadialGlyph {
             }
         }
 
-        console.log("calculateDirections (movement) result:", directions);
+        debugLog("calculateDirections (movement) result:", directions);
         return directions;
     }
 
@@ -357,9 +367,9 @@ class RadialGlyph {
             };
         }
 
-        console.log(`calculateTimeData: Processing ${fixations.length} items`);
+        debugLog(`calculateTimeData: Processing ${fixations.length} items`);
         if (fixations.length > 0) {
-            console.log(`Sample item:`, fixations[0]);
+            debugLog(`Sample item:`, fixations[0]);
         }
 
         fixations.forEach(fix => {
@@ -428,7 +438,7 @@ class RadialGlyph {
             return aNum - bNum;
         });
 
-        console.log(`calculateTimeData: Found ${sortedParticipants.length} participants:`, sortedParticipants);
+        debugLog(`calculateTimeData: Found ${sortedParticipants.length} participants:`, sortedParticipants);
 
         return {
             histogram: timeHistogram,
@@ -482,8 +492,8 @@ class RadialGlyph {
         });
 
         // Log input data
-        console.log("=== renderRing1 Input Data ===");
-        console.log("directionsData:", directionsData);
+        debugLog("=== renderRing1 Input Data ===");
+        debugLog("directionsData:", directionsData);
 
         // Get counts for color scaling - use GLOBAL absolute scale for consistency
         const counts = directions.map(d => {
@@ -497,8 +507,8 @@ class RadialGlyph {
         const GLOBAL_MAX_DIRECTION_COUNT = 100; // Máximo esperado de fixations por dirección
 
         const localMaxCount = Math.max(...counts, 1);
-        console.log("Direction values:", { Arriba: counts[0], Derecha: counts[1], Abajo: counts[2], Izquierda: counts[3] });
-        console.log("localMaxCount:", localMaxCount, "GLOBAL_MAX:", GLOBAL_MAX_DIRECTION_COUNT);
+        debugLog("Direction values:", { Arriba: counts[0], Derecha: counts[1], Abajo: counts[2], Izquierda: counts[3] });
+        debugLog("localMaxCount:", localMaxCount, "GLOBAL_MAX:", GLOBAL_MAX_DIRECTION_COUNT);
 
         // Create a color cache to verify consistent mapping
         const colorCache = {};
@@ -520,7 +530,7 @@ class RadialGlyph {
             // Cache the color
             colorCache[value] = color;
 
-            console.log(`getBlueColor(${value}): normalized=${normalized.toFixed(3)}, color=${color}`);
+            debugLog(`getBlueColor(${value}): normalized=${normalized.toFixed(3)}, color=${color}`);
             return color;
         };
 
@@ -637,8 +647,8 @@ class RadialGlyph {
             .text(d => directionsData[d] || 0);*/
 
         // Verify final DOM state with COMPLETE attribute inspection
-        console.log("=== Final Ring1 DOM Segments ===");
-        console.log("Color Cache (value -> color mapping):", colorCache);
+        debugLog("=== Final Ring1 DOM Segments ===");
+        debugLog("Color Cache (value -> color mapping):", colorCache);
 
         /*this.ring1Group.selectAll(".direction-segment").each(function(d, i) {
             const element = d3.select(this);
@@ -648,31 +658,31 @@ class RadialGlyph {
             const classList = element.attr("class");
             const value = directionsData[d] || 0;
 
-            console.log(`%c Segment ${d} (index=${i}, value=${value})`, 'color: blue; font-weight: bold');
-            console.log(`  Data-bound value: ${value}`);
-            console.log(`  style="${style}"`);
-            console.log(`  fill="${fill}"}`);
-            console.log(`  opacity="${opacity}"`);
-            console.log(`  class="${classList}"`);
+            debugLog(`%c Segment ${d} (index=${i}, value=${value})`, 'color: blue; font-weight: bold');
+            debugLog(`  Data-bound value: ${value}`);
+            debugLog(`  style="${style}"`);
+            debugLog(`  fill="${fill}"}`);
+            debugLog(`  opacity="${opacity}"`);
+            debugLog(`  class="${classList}"`);
 
             // Extract actual fill color from style
             const styleMatch = style.match(/fill:\s*([^;!]+)/);
             const fillFromStyle = styleMatch ? styleMatch[1].trim() : 'NOT FOUND';
-            console.log(`  Actual fill color from style: ${fillFromStyle}`);
+            debugLog(`  Actual fill color from style: ${fillFromStyle}`);
         });
 
-        console.log("=== Verify Consistency ===");
+        debugLog("=== Verify Consistency ===");
         directions.forEach(direction => {
             const value = directionsData[direction] || 0;
             const expectedColor = colorCache[value];
-            console.log(`Direction=${direction}, Value=${value}, Expected Color=${expectedColor}`);
+            debugLog(`Direction=${direction}, Value=${value}, Expected Color=${expectedColor}`);
         });
 
         // Double-check: verify there are exactly 4 segments
         const segmentCount = this.ring1Group.selectAll(".direction-segment").size();
-        console.log(`Total direction segments rendered: ${segmentCount} (expected: 4)`);
+        debugLog(`Total direction segments rendered: ${segmentCount} (expected: 4)`);
         */
-        console.log("=== End Ring1 DOM ===");
+        debugLog("=== End Ring1 DOM ===");
     }
 
     renderRing2(timeData) {
@@ -697,11 +707,11 @@ class RadialGlyph {
         }
         participants = participants.filter(p => p != null && p !== undefined && p !== '');
 
-        console.log("renderRing2: participants=", participants, "histogram length=", histogram.length);
+        debugLog("renderRing2: participants=", participants, "histogram length=", histogram.length);
 
         // If no participants or no data, show empty state
         if (participants.length === 0 || !histogram || histogram.length === 0) {
-            console.log("Ring2: No data to render");
+            debugLog("Ring2: No data to render");
             this.ring2Group.append("text")
                 .attr("text-anchor", "middle")
                 .attr("dy", "0.3em")
@@ -816,7 +826,7 @@ class RadialGlyph {
                 if (participantFixations.length > 0) {
                     // DEBUG: Check what data we have
                     if (participantFixations.length > 0) {
-                        console.log(`Sample fixation for P${d.participantId}:`, participantFixations[0]);
+                        debugLog(`Sample fixation for P${d.participantId}:`, participantFixations[0]);
                     }
 
                     // Get min and max times from fixations
@@ -1023,3 +1033,4 @@ class RadialGlyph {
         d3.selectAll(".participant-legend-item").remove();
     }
 }
+

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from app.shared.logging_utils import debug_log, error_log
 from typing import List, Dict, Any
 
 class FixationDetectorIVT:
@@ -362,7 +363,7 @@ def get_patch_fixations(data, image_id, pixel_bounds):
     cached = _fixation_cache.get(cache_key)
 
     if cached is None:
-        print(f" PATCH FIXATIONS: Calculando fijaciones globales para imagen {image_id} (cache miss)")
+        debug_log(f" PATCH FIXATIONS: Calculando fijaciones globales para imagen {image_id} (cache miss)")
         full_result = get_fixations_ivt(
             data=image_data,
             participant_id=None,
@@ -437,12 +438,12 @@ def clear_fixation_cache(image_id=None):
     global _fixation_cache
     if image_id is None:
         _fixation_cache.clear()
-        print(" Cache de fijaciones completamente limpiado")
+        debug_log(" Cache de fijaciones completamente limpiado")
     else:
         keys_to_remove = [k for k in _fixation_cache.keys() if f"img_{image_id}" in k]
         for key in keys_to_remove:
             del _fixation_cache[key]
-        print(f" Cache limpiado para imagen {image_id}")
+        debug_log(f" Cache limpiado para imagen {image_id}")
 
 
 def compare_fixation_results(result1, result2):
@@ -476,26 +477,26 @@ if __name__ == "__main__":
     # Detectar fijaciones para imagen 0
     result = detect_fixations_for_image(df, image_index=0)
     
-    print(f"Imagen 0:")
-    print(f"- Fijaciones detectadas: {result['stats']['total_fixations']}")
-    print(f"- Participantes: {result['stats']['participants']}")
-    print(f"- Puntos de gaze: {result['gaze_points_count']}")
-    print(f"- Duración promedio: {result['stats']['avg_duration']:.3f}s")
+    debug_log(f"Imagen 0:")
+    debug_log(f"- Fijaciones detectadas: {result['stats']['total_fixations']}")
+    debug_log(f"- Participantes: {result['stats']['participants']}")
+    debug_log(f"- Puntos de gaze: {result['gaze_points_count']}")
+    debug_log(f"- Duración promedio: {result['stats']['avg_duration']:.3f}s")
     
     # Mostrar fijaciones por participante
     for participant, count in result['stats']['fixations_per_participant'].items():
-        print(f"- Participante {participant}: {count} fijaciones")
+        debug_log(f"- Participante {participant}: {count} fijaciones")
     
     # Probar funciones de compatibilidad
-    print(f"\n Probando funciones de compatibilidad:")
+    debug_log(f"\n Probando funciones de compatibilidad:")
     
     # Probar get_participant_fixations
     participant_result = get_participant_fixations(df, participant_id=2, image_id=0)
     if 'error' not in participant_result:
-        print(f"- get_participant_fixations: {participant_result['stats']['total_fixations']} fijaciones")
+        debug_log(f"- get_participant_fixations: {participant_result['stats']['total_fixations']} fijaciones")
     
     # Probar get_patch_fixations
     patch_bounds = {'x_min': 0, 'x_max': 400, 'y_min': 0, 'y_max': 300}
     patch_result = get_patch_fixations(df, image_id=0, pixel_bounds=patch_bounds)
     if 'error' not in patch_result:
-        print(f"- get_patch_fixations: {patch_result['stats']['total_fixations']} fijaciones en patch")
+        debug_log(f"- get_patch_fixations: {patch_result['stats']['total_fixations']} fijaciones en patch")

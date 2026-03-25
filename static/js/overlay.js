@@ -1,5 +1,35 @@
-// overlay.js — gaze/fixation overlay, contour, heatmap rendering
+// overlay.js - gaze/fixation overlay, contour, heatmap rendering
 
+const overlayLog = window.debugLog || function(...args) {
+    if (window.DEBUG_LOGS) {
+        console.log(...args);
+    }
+};
+let lastOverlayRenderSignature = null;
+const precomputedOverlayCache = new Map();
+
+function buildParticipantPointIndex(points) {
+    const index = new Map();
+    (points || []).forEach(point => {
+        const key = String(point.participante ?? point.participant ?? '');
+        if (!key || key === 'null' || key === 'undefined') return;
+        if (!index.has(key)) {
+            index.set(key, []);
+        }
+        index.get(key).push(point);
+    });
+    return index;
+}
+
+function getPointsForParticipant(allPoints, participantId, indexMap) {
+    if (!participantId || participantId === 'all') {
+        return allPoints || [];
+    }
+    if (!indexMap || typeof indexMap.get !== 'function') {
+        return (allPoints || []).filter(point => String(point.participante || point.participant) === String(participantId));
+    }
+    return indexMap.get(String(participantId)) || [];
+}
 function clearOverlayPoints() {
     const container = document.getElementById('overlay-points-container');
     if (!container) return;
@@ -16,23 +46,54 @@ function clearOverlayPoints() {
         if (heatmapCanvas) {
             heatmapCanvas.remove();
         }
+
+        imageWrapper.querySelectorAll('img.precomputed-overlay').forEach(el => el.remove());
     }
 
-    console.log('Cleared overlay points, contours and heatmap');
+    overlayLog('Cleared overlay points, contours and heatmap');
+}
+
+function shouldUsePrecomputedOverlay() {
+    return false;
+}
+
+function getPrecomputedOverlayUrls(imageId, dataType) {
+    const key = `${imageId}|${dataType}`;
+    if (precomputedOverlayCache.has(key)) {
+        return Promise.resolve(precomputedOverlayCache.get(key));
+    }
+
+    return fetch(`/api/precomputed-overlays/${imageId}?data_type=${dataType}`)
+        .then(resp => resp.json())
+        .then(data => {
+            if (data && data.heatmap_url && data.contour_url) {
+                precomputedOverlayCache.set(key, data);
+                return data;
+            }
+            throw new Error(data?.error || 'No precomputed overlay URLs');
+        });
+}
+
+function drawPrecomputedOverlayLayer(layerType, dataType, fallbackPoints, requestToken) {
+    void layerType;
+    void dataType;
+    void fallbackPoints;
+    void requestToken;
+    return true;
 }
 
 function drawContoursOverlay(points, dataType) {
-    console.log('Drawing contours overlay for', dataType, ':', points.length, 'points');
+    overlayLog('Drawing contours overlay for', dataType, ':', points.length, 'points');
 
     if (!points || points.length === 0) {
-        console.log('No points to draw contours');
+        overlayLog('No points to draw contours');
         return;
     }
 
     const imageWrapper = document.getElementById('component-1');
     const img = document.getElementById('sel-img-view');
     if (!imageWrapper || !img) {
-        console.log('Cannot draw contours - missing elements');
+        overlayLog('Cannot draw contours - missing elements');
         return;
     }
 
@@ -74,7 +135,7 @@ function drawContoursOverlay(points, dataType) {
         return [scaledX, scaledY];
     });
 
-    console.log('Creating density contours from', contourPoints.length, 'scaled points');
+    overlayLog('Creating density contours from', contourPoints.length, 'scaled points');
 
     // Crear density contours
     const contours = d3.contourDensity()
@@ -96,21 +157,21 @@ function drawContoursOverlay(points, dataType) {
         .attr('stroke-width', 2)
         .attr('opacity', 0.8);
 
-    console.log('✓ Contours drawn:', contours.length, 'contour lines');
+    overlayLog('✓ Contours drawn:', contours.length, 'contour lines');
 }
 
 function drawHeatmapOverlay(points, dataType) {
-    console.log('Drawing heatmap overlay for', dataType, ':', points.length, 'points');
+    overlayLog('Drawing heatmap overlay for', dataType, ':', points.length, 'points');
 
     if (!points || points.length === 0) {
-        console.log('No points to draw heatmap');
+        overlayLog('No points to draw heatmap');
         return;
     }
 
     const imageWrapper = document.getElementById('component-1');
     const img = document.getElementById('sel-img-view');
     if (!imageWrapper || !img) {
-        console.log('Cannot draw heatmap - missing elements');
+        overlayLog('Cannot draw heatmap - missing elements');
         return;
     }
 
@@ -214,7 +275,7 @@ function drawHeatmapOverlay(points, dataType) {
     // Escalar con interpolación suave al canvas final
     ctx.drawImage(tempCanvas, 0, 0, heatmapWidth, heatmapHeight, 0, 0, imgWidth, imgHeight);
 
-    console.log('✓ Heatmap drawn with', points.length, 'points at', resolutionScale + 'x resolution');
+    overlayLog('✓ Heatmap drawn with', points.length, 'points at', resolutionScale + 'x resolution');
 }
 
 // Función para aplicar blur Gaussiano a una matriz 2D
@@ -324,10 +385,10 @@ function getJetColor(value) {
 }
 
 function visualizeGazePointsOverlay() {
-    console.log('Visualizing gaze points overlay:', currentGazePoints.length);
+    overlayLog('Visualizing gaze points overlay:', currentGazePoints.length);
 
     if (!currentGazePoints || currentGazePoints.length === 0) {
-        console.log('No gaze points to visualize');
+        overlayLog('No gaze points to visualize');
         return;
     }
 
@@ -336,7 +397,7 @@ function visualizeGazePointsOverlay() {
     const component1 = document.getElementById('component-1');
 
     if (!overlayContainer || !img || !component1) {
-        console.log('Missing overlay container, image or component-1');
+        overlayLog('Missing overlay container, image or component-1');
         return;
     }
 
@@ -352,11 +413,11 @@ function visualizeGazePointsOverlay() {
     const scaleFactorX = imgRect.width / dataSpaceWidth;
     const scaleFactorY = imgRect.height / dataSpaceHeight;
 
-    console.log(`=== Gaze Points Overlay Debug ===`);
-    console.log(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
-    console.log(`Display size: ${imgRect.width}x${imgRect.height}`);
-    console.log(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
-    console.log(`Total gaze points to render: ${currentGazePoints.length}`);
+    overlayLog(`=== Gaze Points Overlay Debug ===`);
+    overlayLog(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
+    overlayLog(`Display size: ${imgRect.width}x${imgRect.height}`);
+    overlayLog(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
+    overlayLog(`Total gaze points to render: ${currentGazePoints.length}`);
 
     // Si hay un segmento de scarf plot seleccionado, pintar los puntos con su color
     let selectedSegmentPointColor = null;
@@ -368,7 +429,7 @@ function visualizeGazePointsOverlay() {
         } else {
             selectedSegmentPointColor = currentScarfSegment.color;
         }
-        console.log(`Using scarf segment color for gaze points: ${selectedSegmentPointColor}`);
+        overlayLog(`Using scarf segment color for gaze points: ${selectedSegmentPointColor}`);
     }
 
     const fragment = document.createDocumentFragment();
@@ -383,9 +444,9 @@ function visualizeGazePointsOverlay() {
         const scaledY = (dataSpaceHeight - point.y) * scaleFactorY;
 
         if (index < 3) {
-            console.log(`=== Gaze Point ${index} ===`);
-            console.log(`  Original coords: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-            console.log(`  Scaled position: (${scaledX.toFixed(1)}, ${scaledY.toFixed(1)})`);
+            overlayLog(`=== Gaze Point ${index} ===`);
+            overlayLog(`  Original coords: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+            overlayLog(`  Scaled position: (${scaledX.toFixed(1)}, ${scaledY.toFixed(1)})`);
         }
 
         gazeElement.style.left = scaledX + 'px';
@@ -402,15 +463,15 @@ function visualizeGazePointsOverlay() {
     });
 
     overlayContainer.appendChild(fragment);
-    console.log(`✓ Rendered ${currentGazePoints.length} gaze points`);
-    console.log(`  Overlay container now has ${overlayContainer.children.length} children`);
+    overlayLog(`✓ Rendered ${currentGazePoints.length} gaze points`);
+    overlayLog(`  Overlay container now has ${overlayContainer.children.length} children`);
 }
 
 function visualizeFixationPointsOverlay() {
-    console.log('Visualizing fixation points overlay:', currentFixationPoints.length);
+    overlayLog('Visualizing fixation points overlay:', currentFixationPoints.length);
 
     if (!currentFixationPoints || currentFixationPoints.length === 0) {
-        console.log('No fixation points to visualize');
+        overlayLog('No fixation points to visualize');
         return;
     }
 
@@ -419,7 +480,7 @@ function visualizeFixationPointsOverlay() {
     const component1 = document.getElementById('component-1');
 
     if (!overlayContainer || !img || !component1) {
-        console.log('Missing overlay container, image or component-1');
+        overlayLog('Missing overlay container, image or component-1');
         return;
     }
 
@@ -435,10 +496,10 @@ function visualizeFixationPointsOverlay() {
     const scaleFactorX = imgRect.width / dataSpaceWidth;
     const scaleFactorY = imgRect.height / dataSpaceHeight;
 
-    console.log(`=== Fixation Overlay Debug ===`);
-    console.log(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
-    console.log(`Display size: ${imgRect.width}x${imgRect.height}`);
-    console.log(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
+    overlayLog(`=== Fixation Overlay Debug ===`);
+    overlayLog(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
+    overlayLog(`Display size: ${imgRect.width}x${imgRect.height}`);
+    overlayLog(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
 
     const fragment = document.createDocumentFragment();
 
@@ -452,10 +513,10 @@ function visualizeFixationPointsOverlay() {
         const scaledY = (dataSpaceHeight - point.y) * scaleFactorY;
 
         if (index < 3) {
-            console.log(`=== Fixation Point ${index} ===`);
-            console.log(`  Original coords: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-            console.log(`  Scaled position: (${scaledX.toFixed(1)}, ${scaledY.toFixed(1)})`);
-            console.log(`  Duration: ${point.duration?.toFixed(3) || 0}s`);
+            overlayLog(`=== Fixation Point ${index} ===`);
+            overlayLog(`  Original coords: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+            overlayLog(`  Scaled position: (${scaledX.toFixed(1)}, ${scaledY.toFixed(1)})`);
+            overlayLog(`  Duration: ${point.duration?.toFixed(3) || 0}s`);
         }
 
         fixationElement.style.left = scaledX + 'px';
@@ -479,31 +540,22 @@ function visualizeFixationPointsOverlay() {
     });
 
     overlayContainer.appendChild(fragment);
-    console.log('Rendered', currentFixationPoints.length, 'fixation points in overlay container');
+    overlayLog('Rendered', currentFixationPoints.length, 'fixation points in overlay container');
 }
 
 function filterPointsByParticipant(allPoints, participantId) {
-    if (!participantId || participantId === 'all') {
-        return allPoints;
-    }
-
-    const filteredPoints = allPoints.filter(point => {
-        const pointParticipant = String(point.participante || point.participant);
-        return pointParticipant === String(participantId);
-    });
-
-    console.log(`Filtered ${allPoints.length} points to ${filteredPoints.length} for participant ${participantId}`);
-    return filteredPoints;
+    return getPointsForParticipant(allPoints, participantId, null);
 }
 
 function updateOverlay() {
-    console.log('updateOverlay called with types:', currentOverlayTypes, 'data type:', currentDataType, 'participant:', selectedPart);
-    clearOverlayPoints();
+    overlayLog('updateOverlay called with types:', currentOverlayTypes, 'data type:', currentDataType, 'participant:', selectedPart);
     const imgView = document.getElementById('sel-img-view');
     const segView = getSegmentationLayerImage();
 
     // Si no hay overlays seleccionados, no aplicar overlays
     if (!currentOverlayTypes || currentOverlayTypes.length === 0) {
+        clearOverlayPoints();
+        lastOverlayRenderSignature = null;
         if (imgView) imgView.style.opacity = '1';
         if (segView) segView.style.opacity = currentImageBlendPercent <= 0 ? '0' : '1';
         return;
@@ -516,9 +568,26 @@ function updateOverlay() {
         segView.style.opacity = currentImageBlendPercent <= 0 ? '0' : (window.brushSelection ? '1' : '0.2');
     }
 
-    const gazeToVisualize = filterPointsByParticipant(allGazePointsWithParticipant, selectedPart);
-    const fixationsToVisualize = filterPointsByParticipant(allFixationPointsWithParticipant, selectedPart);
+    const gazeToVisualize = getPointsForParticipant(allGazePointsWithParticipant, selectedPart, gazePointsByParticipant);
+    const fixationsToVisualize = getPointsForParticipant(allFixationPointsWithParticipant, selectedPart, fixationPointsByParticipant);
 
+    const imgRect = imgView ? imgView.getBoundingClientRect() : null;
+    const currentSignature = JSON.stringify({
+        types: (currentOverlayTypes || []).slice().sort(),
+        dataType: currentDataType,
+        participant: selectedPart || 'all',
+        gazeLen: gazeToVisualize.length,
+        fixationLen: fixationsToVisualize.length,
+        width: imgRect ? Math.round(imgRect.width) : 0,
+        height: imgRect ? Math.round(imgRect.height) : 0,
+        scarfSegment: currentScarfSegment ? `${currentScarfSegment.participant}:${currentScarfSegment.start_time}:${currentScarfSegment.end_time}` : ''
+    });
+    if (currentSignature === lastOverlayRenderSignature) {
+        return;
+    }
+    lastOverlayRenderSignature = currentSignature;
+
+    clearOverlayPoints();
     currentGazePoints = gazeToVisualize;
     currentFixationPoints = fixationsToVisualize;
 
@@ -546,16 +615,16 @@ function updateOverlay() {
 }
 
 function loadAllPointsForImage(imageId) {
-    console.log('Loading all points for image:', imageId, 'with data type:', currentDataType);
+    overlayLog('Loading all points for image:', imageId, 'with data type:', currentDataType);
 
     if (!imageId) {
-        console.log('No image ID provided');
+        overlayLog('No image ID provided');
         return;
     }
 
     const dataSpaceWidth = 800;
     const dataSpaceHeight = 600;
-    console.log(`Using data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
+    overlayLog(`Using data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
 
     fetch(`/api/analyze-area/${imageId}?data_type=${currentDataType}&include_all_data=true`, {
         method: 'POST',
@@ -571,25 +640,30 @@ function loadAllPointsForImage(imageId) {
     })
     .then(response => response.json())
     .then(data => {
-        console.log('All points loaded for image:', imageId);
+        overlayLog('All points loaded for image:', imageId);
 
         clearOverlayPoints();
+        lastOverlayRenderSignature = null;
 
         if (data.gaze_points && Array.isArray(data.gaze_points)) {
             allGazePointsWithParticipant = data.gaze_points.map(point => {
                 const rawX = point.x_centroid || point.pixelX || point.x || 0;
                 const rawY = point.y_centroid || point.pixelY || point.y || 0;
+                const rawTime = point.Time || point.time || 0;
+                const timeSec = Number(rawTime) < 100 ? Number(rawTime) : Number(rawTime) / 1000;
 
                 return {
                     x: rawX,
                     y: rawY,
                     participante: point.participante || point.participant || null,
-                    time: point.Time || point.time || 0  // Timestamp para filtrado temporal
+                    time: rawTime,  // Timestamp para filtrado temporal
+                    timeSec: Number.isFinite(timeSec) ? timeSec : 0
                 };
             });
-            console.log('Loaded all gaze points:', allGazePointsWithParticipant.length);
+            gazePointsByParticipant = buildParticipantPointIndex(allGazePointsWithParticipant);
+            overlayLog('Loaded all gaze points:', allGazePointsWithParticipant.length);
             if (allGazePointsWithParticipant.length > 0) {
-                console.log('Sample gaze point:', allGazePointsWithParticipant[0]);
+                overlayLog('Sample gaze point:', allGazePointsWithParticipant[0]);
             }
         }
 
@@ -597,19 +671,26 @@ function loadAllPointsForImage(imageId) {
             allFixationPointsWithParticipant = data.fixations.map(point => {
                 const rawX = point.x_centroid || point.x || 0;
                 const rawY = point.y_centroid || point.y || 0;
+                const rawStart = point.start || point.start_time || 0;
+                const rawEnd = point.end || point.end_time || 0;
+                const startSec = Number(rawStart) < 100 ? Number(rawStart) : Number(rawStart) / 1000;
+                const endSec = Number(rawEnd) < 100 ? Number(rawEnd) : Number(rawEnd) / 1000;
 
                 return {
                     x: rawX,  // Keep native coordinates (800x600)
                     y: rawY,
                     duration: point.duration || 0,
                     participante: point.participante || point.participant || null,
-                    start: point.start || point.start_time || 0,  // Timestamp de inicio
-                    end: point.end || point.end_time || 0  // Timestamp de fin
+                    start: rawStart,  // Timestamp de inicio
+                    end: rawEnd,  // Timestamp de fin
+                    startSec: Number.isFinite(startSec) ? startSec : 0,
+                    endSec: Number.isFinite(endSec) ? endSec : 0
                 };
             });
-            console.log('Loaded all fixation points:', allFixationPointsWithParticipant.length);
+            fixationPointsByParticipant = buildParticipantPointIndex(allFixationPointsWithParticipant);
+            overlayLog('Loaded all fixation points:', allFixationPointsWithParticipant.length);
             if (allFixationPointsWithParticipant.length > 0) {
-                console.log('Sample fixation point:', allFixationPointsWithParticipant[0]);
+                overlayLog('Sample fixation point:', allFixationPointsWithParticipant[0]);
             }
         }
 
@@ -628,7 +709,7 @@ function alignOverlayWithImage() {
     const component1 = document.getElementById('component-1');
 
     if (!overlayContainer || !img || !component1) {
-        console.log('Cannot align overlay - missing elements');
+        overlayLog('Cannot align overlay - missing elements');
         return;
     }
 
@@ -654,9 +735,10 @@ function alignOverlayWithImage() {
     overlayContainer.style.height = displayHeight + 'px';
     overlayContainer.style.pointerEvents = 'none';
 
-    console.log(`=== Overlay Alignment ===`);
-    console.log(`Image position: (${relativeLeft}, ${relativeTop})`);
-    console.log(`Image display size: ${displayWidth}x${displayHeight}`);
-    console.log(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
-    console.log(`Scale factor: ${displayWidth / dataSpaceWidth}`);
+    overlayLog(`=== Overlay Alignment ===`);
+    overlayLog(`Image position: (${relativeLeft}, ${relativeTop})`);
+    overlayLog(`Image display size: ${displayWidth}x${displayHeight}`);
+    overlayLog(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
+    overlayLog(`Scale factor: ${displayWidth / dataSpaceWidth}`);
 }
+

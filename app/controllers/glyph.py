@@ -9,23 +9,25 @@ import os
 import sys
 import time
 from app.shared.cache import cache
+from app.shared.logging_utils import debug_log, error_log
 
 # Agregar ruta para imports
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 # Importar servicio compartido de datos
 try:
     from app.shared.data_service import get_data_service
-    print("OK: Servicio compartido de datos HABILITADO")
-except ImportError as e:
-    print("ADVERTENCIA: Servicio compartido de datos no disponible:", str(e))
+    debug_log("OK: Servicio compartido de datos HABILITADO")
+except Exception as e:
+    error_log("ADVERTENCIA: Servicio compartido de datos no disponible:", str(e))
     get_data_service = None
 
 # Importar servicio pre-calculado (activado)
 try:
-    from precalculated_fixations_service import precalculated_service
-    print("OK: Servicio de fijaciones pre-calculadas HABILITADO")
-except ImportError as e:
-    print("ADVERTENCIA: Servicio de fijaciones pre-calculadas no disponible:", str(e))
+    from app.shared.precomputed_fixation_service import get_precomputed_service
+    precalculated_service = get_precomputed_service()
+    debug_log("OK: Servicio de fijaciones pre-calculadas HABILITADO")
+except Exception as e:
+    error_log("ADVERTENCIA: Servicio de fijaciones pre-calculadas no disponible:", str(e))
     precalculated_service = None
 
 # Blueprint para rutas de glyph
@@ -38,21 +40,21 @@ class GlyphController:
             self.data_service = get_data_service()
             self.data = self.data_service.get_main_data()
             if self.data is not None:
-                print(f"OK: GlyphController: Datos cargados desde DataService ({len(self.data)} rows)")
+                debug_log(f"OK: GlyphController: Datos cargados desde DataService ({len(self.data)} rows)")
             else:
-                print(f"ADVERTENCIA: GlyphController: No hay datos disponibles en DataService")
+                error_log(f"ADVERTENCIA: GlyphController: No hay datos disponibles en DataService")
         else:
             self.data = None
-            print(f"ADVERTENCIA: GlyphController: DataService no disponible")
+            error_log(f"ADVERTENCIA: GlyphController: DataService no disponible")
 
 # Instancia global del controlador
 glyph_controller = GlyphController()
 
 # Verificar disponibilidad del servicio de fijaciones pre-calculadas
 if precalculated_service and precalculated_service.is_available():
-    print(f" Servicio de fijaciones pre-calculadas disponible: {precalculated_service.get_global_stats().get('total_fixations', 0)} fijaciones")
+    debug_log(f" Servicio de fijaciones pre-calculadas disponible: {precalculated_service.get_global_stats().get('total_fixations', 0)} fijaciones")
 else:
-    print(" Servicio de fijaciones pre-calculadas no disponible - usando cálculo en tiempo real")
+    error_log(" Servicio de fijaciones pre-calculadas no disponible - usando cálculo en tiempo real")
 
 SCARF_TIMELINE_CACHE = {}
 SCARF_TIMELINE_CACHE_TTL_SECONDS = 90
@@ -208,180 +210,69 @@ def get_scarf_timeline(image_id):
             return jsonify({'error': 'No hay datos disponibles para generar el scarf plot.'}), 404
         return jsonify(payload)
     except Exception as exc:
-        print(f" Error generando scarf timeline para imagen {image_id}: {exc}")
+        debug_log(f" Error generando scarf timeline para imagen {image_id}: {exc}")
         return jsonify({'error': f'Error generando scarf timeline: {exc}'}), 500
 
 def _generate_semantic_transitions_from_precalculated(fixations, participant_id, image_id):
-    """
-    Generar transiciones semánticas a partir de fijaciones pre-calculadas
-    
-    Args:
-        fixations: Lista de fijaciones pre-calculadas
-        participant_id: ID del participante
-        image_id: ID de la imagen
-        
-    Returns:
-        Diccionario con sequence y region_stats
-    """
+    """Delega transiciones semanticas al servicio pre-calculado compartido."""
     if not fixations:
         return {
             'sequence': [],
             'region_stats': {},
+            'timeline': [],
             'total_transitions': 0,
             'unique_regions': 0
         }
-    
+
     try:
-        # Obtener datos originales para clasificación semántica
-        if glyph_controller.data is not None:
-            participant_data = glyph_controller.data[
-                (glyph_controller.data['ImageName'] == image_id) & 
-                (glyph_controller.data['participante'] == participant_id)
-            ].copy()
-            
-            if len(participant_data) == 0:
+        if precalculated_service and precalculated_service.is_available():
+            result = precalculated_service.get_semantic_transitions_fast(image_id, participant_id)
+            if isinstance(result, dict) and 'error' not in result:
                 return {
-                    'sequence': [],
-                    'region_stats': {},
-                    'total_transitions': 0,
-                    'unique_regions': 0
+                    'sequence': result.get('sequence', []),
+                    'region_stats': result.get('region_stats', {}),
+                    'timeline': result.get('timeline', []),
+                    'total_transitions': result.get('total_transitions', 0),
+                    'unique_regions': result.get('unique_regions', 0)
                 }
-            
-            # Mapear fijaciones a regiones semánticas
-            sequence = []
-            region_stats = {}
-            
-            # Ordenar fijaciones por tiempo
-            sorted_fixations = sorted(fixations, key=lambda f: f['start_time'])
-            
-            for i, fixation in enumerate(sorted_fixations):
-                # Encontrar punto más cercano en datos originales para obtener main_class
-                x_centroid = fixation['x_centroid']
-                y_centroid = fixation['y_centroid']
-                
-                # Buscar main_class del punto más cercano
-                distances = ((participant_data['pixelX'] - x_centroid) ** 2 + 
-                           (participant_data['pixelY'] - y_centroid) ** 2) ** 0.5
-                
-                if len(distances) > 0:
-                    closest_idx = distances.idxmin()
-                    main_class = str(participant_data.loc[closest_idx].get('main_class', 'unknown'))
-                else:
-                    main_class = 'unknown'
-                
-                # Agregar a estadísticas de región
-                if main_class not in region_stats:
-                    region_stats[main_class] = {
-                        'visit_count': 0,
-                        'total_duration': 0.0,
-                        'first_visit': float('inf'),
-                        'last_visit': 0.0,
-                        'centroid_x': 0.0,
-                        'centroid_y': 0.0,
-                        'x_coords': [],
-                        'y_coords': []
-                    }
-                
-                region_stats[main_class]['visit_count'] += 1
-                region_stats[main_class]['total_duration'] += fixation['duration']
-                region_stats[main_class]['first_visit'] = min(region_stats[main_class]['first_visit'], fixation['start_time'])
-                region_stats[main_class]['last_visit'] = max(region_stats[main_class]['last_visit'], fixation['end_time'])
-                region_stats[main_class]['x_coords'].append(x_centroid)
-                region_stats[main_class]['y_coords'].append(y_centroid)
-                
-                # Agregar transición si no es la primera fijación
-                if i > 0:
-                    prev_fixation = sorted_fixations[i-1]
-                    # Encontrar región anterior (similar lógica)
-                    prev_distances = ((participant_data['pixelX'] - prev_fixation['x_centroid']) ** 2 + 
-                                    (participant_data['pixelY'] - prev_fixation['y_centroid']) ** 2) ** 0.5
-                    
-                    if len(prev_distances) > 0:
-                        prev_closest_idx = prev_distances.idxmin()
-                        prev_main_class = str(participant_data.loc[prev_closest_idx].get('main_class', 'unknown'))
-                    else:
-                        prev_main_class = 'unknown'
-                    
-                    # Añadir transición
-                    sequence.append({
-                        'from_region': prev_main_class,
-                        'to_region': main_class,
-                        'time': fixation['start_time'],
-                        'duration': fixation['duration']
-                    })
-            
-            # Calcular centroides finales
-            for region_name, stats in region_stats.items():
-                if stats['x_coords']:
-                    stats['centroid_x'] = sum(stats['x_coords']) / len(stats['x_coords'])
-                    stats['centroid_y'] = sum(stats['y_coords']) / len(stats['y_coords'])
-                    
-                    # Limpiar listas temporales
-                    del stats['x_coords']
-                    del stats['y_coords']
-                    
-                    # Arreglar first_visit si es infinito
-                    if stats['first_visit'] == float('inf'):
-                        stats['first_visit'] = 0.0
-            
-            return {
-                'sequence': sequence,
-                'region_stats': region_stats,
-                'total_transitions': len(sequence),
-                'unique_regions': len(region_stats)
-            }
-            
     except Exception as e:
-        print(f" Error en _generate_semantic_transitions_from_precalculated: {e}")
-        
-    # Fallback vacío
+        error_log(f" Error en _generate_semantic_transitions_from_precalculated: {e}")
+
     return {
         'sequence': [],
         'region_stats': {},
+        'timeline': [],
         'total_transitions': 0,
         'unique_regions': 0
     }
 
 def get_fixations_ultra_fast(image_id, patch_size=40):
-    """
-    Obtener fijaciones usando el servicio pre-calculado para máxima velocidad
-    
-    Args:
-        image_id: ID de la imagen
-        patch_size: Tamaño de patch (10, 20, 40)
-        
-    Returns:
-        Diccionario con fijaciones y matriz de atención pre-calculada
-    """
-    if not precalculated_service.is_available():
+    """Obtener fijaciones usando servicio pre-calculado."""
+    if not precalculated_service or not precalculated_service.is_available():
         return {'error': 'Precalculated service not available'}
-    
+
     try:
-        # Obtener matriz de atención pre-calculada
         matrix_result = precalculated_service.get_attention_matrix(image_id, patch_size)
-        
         if 'error' in matrix_result:
             return matrix_result
-        
-        # Obtener fijaciones individuales para la imagen
+
         fixations = precalculated_service.get_fixations_for_image(image_id, patch_size)
-        
         return {
             'fixations': fixations,
-            'participants': matrix_result['participants'],
-            'attention_matrix': matrix_result['attention_matrix'],
-            'config': matrix_result['config'],
-            'statistics': matrix_result['statistics'],
+            'participants': matrix_result.get('participants', []),
+            'attention_matrix': matrix_result.get('attention_matrix', []),
+            'config': matrix_result.get('config', {}),
+            'statistics': matrix_result.get('statistics', {}),
             'source': 'precalculated_ultra_fast',
             'performance': 'Maximum speed - no real-time calculations'
         }
-        
     except Exception as e:
-        print(f" Error en get_fixations_ultra_fast: {e}")
+        error_log(f" Error en get_fixations_ultra_fast: {e}")
         return {'error': f'Error getting precalculated fixations: {str(e)}'}
 
+
 def safe_json_value(value, default_value):
-    """Función auxiliar para asegurar que los valores sean serializables a JSON."""
+    """Asegura que los valores sean serializables a JSON."""
     if value is None:
         return default_value
     if pd.isna(value):
@@ -392,8 +283,9 @@ def safe_json_value(value, default_value):
         return default_value
     return value
 
+
 def clean_for_json(obj):
-    """Recursivamente limpia un objeto para serialización JSON segura."""
+    """Recursivamente limpia un objeto para serializacion JSON segura."""
     try:
         if isinstance(obj, dict):
             cleaned = {}
@@ -401,40 +293,39 @@ def clean_for_json(obj):
                 try:
                     cleaned[str(k)] = clean_for_json(v)
                 except Exception as e:
-                    print(f" Error cleaning dict key {k}: {e}, using string fallback")
+                    error_log(f" Error cleaning dict key {k}: {e}, using string fallback")
                     cleaned[str(k)] = str(v)
             return cleaned
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             cleaned = []
             for i, item in enumerate(obj):
                 try:
                     cleaned.append(clean_for_json(item))
                 except Exception as e:
-                    print(f" Error cleaning list item {i}: {e}, using string fallback")
+                    error_log(f" Error cleaning list item {i}: {e}, using string fallback")
                     cleaned.append(str(item))
             return cleaned
-        elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        if isinstance(obj, (np.integer, np.int64, np.int32)):
             return int(obj)
-        elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        if isinstance(obj, (np.floating, np.float64, np.float32)):
             if np.isnan(obj) or np.isinf(obj):
                 return 0.0
             return float(obj)
-        elif pd.isna(obj):
+        if pd.isna(obj):
             return None
-        elif isinstance(obj, str):
+        if isinstance(obj, str):
             return str(obj)
-        elif obj is None:
+        if obj is None:
             return None
-        elif isinstance(obj, (int, float, bool)):
+        if isinstance(obj, (int, float, bool)):
             if isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj)):
                 return 0.0
             return obj
-        else:
-            # Para cualquier otro tipo, convertir a string como fallback
-            return str(obj)
-    except Exception as e:
-        print(f" Error in clean_for_json with {type(obj)}: {e}, using string fallback")
         return str(obj)
+    except Exception as e:
+        error_log(f" Error in clean_for_json with {type(obj)}: {e}, using string fallback")
+        return str(obj)
+
 
 @glyph_bp.route('/glyph')
 def glyph():
@@ -625,7 +516,7 @@ def get_temporal_sequence(image_id, participant_id):
                 except:
                     participant_data.at[idx, 'main_class'] = 'unknown'
         except Exception as e:
-            print(f"Error getting semantic classes: {e}")
+            debug_log(f"Error getting semantic classes: {e}")
             participant_data['main_class'] = 'unknown'
         
         # Filtrar estadías por REGIÓN SEMÁNTICA (no por patch)
@@ -666,7 +557,7 @@ def get_temporal_sequence(image_id, participant_id):
                         
                         # Debug: Log estadías largas
                         if duration > 3.0:
-                            print(f" Estadía larga: Participante {participant_id}, Región {current_region}, Duración: {duration:.3f}s, Puntos: {len(current_group)}")
+                            debug_log(f" Estadía larga: Participante {participant_id}, Región {current_region}, Duración: {duration:.3f}s, Puntos: {len(current_group)}")
                         
                         filtered_regions.append({
                             'region': current_region,
@@ -678,7 +569,7 @@ def get_temporal_sequence(image_id, participant_id):
                             'centroid_y': avg_y
                         })
                     elif duration > MAX_STAY_DURATION:
-                        print(f"🚫 Estadía filtrada (muy larga): Participante {participant_id}, Región {current_region}, Duración: {duration:.3f}s > {MAX_STAY_DURATION}s")
+                        debug_log(f"🚫 Estadía filtrada (muy larga): Participante {participant_id}, Región {current_region}, Duración: {duration:.3f}s > {MAX_STAY_DURATION}s")
                     elif len(filtered_regions) == 0:
                         # Permitir la primera región aunque sea corta para evitar participantes vacíos
                         avg_x = sum(p['pixelX'] for p in current_group) / len(current_group)
@@ -713,7 +604,7 @@ def get_temporal_sequence(image_id, participant_id):
                     'to_stay_duration': curr_region['duration']
                 })
         
-        print(f" Participante {participant_id}: {len(participant_data)} puntos → {len(filtered_regions)} regiones → {len(sequence)} transiciones")
+        debug_log(f" Participante {participant_id}: {len(participant_data)} puntos → {len(filtered_regions)} regiones → {len(sequence)} transiciones")
         
         # Calcular estadísticas basadas en REGIONES SEMÁNTICAS 
         region_stats = {}
@@ -751,16 +642,16 @@ def get_temporal_sequence(image_id, participant_id):
         total_experiment_time = 0
         for region_name, stats in region_stats.items():
             total_experiment_time += stats['total_duration']
-            print(f"    {region_name}: {stats['visit_count']} estadías, {stats['total_duration']:.3f}s acumulado, {(stats['total_duration']/stats['visit_count']):.3f}s promedio")
+            debug_log(f"    {region_name}: {stats['visit_count']} estadías, {stats['total_duration']:.3f}s acumulado, {(stats['total_duration']/stats['visit_count']):.3f}s promedio")
         
-        print(f"   🕒 Tiempo total del experimento para participante {participant_id}: {total_experiment_time:.3f}s")
+        debug_log(f"   🕒 Tiempo total del experimento para participante {participant_id}: {total_experiment_time:.3f}s")
         
         # Verificar consistencia con el rango de tiempo original
         original_duration = participant_time_max - participant_time_min
-        print(f"    Duración original (max-min): {original_duration:.3f}s")
+        debug_log(f"    Duración original (max-min): {original_duration:.3f}s")
         
         if total_experiment_time > original_duration * 1.1:  # Si es >10% mayor
-            print(f"    PROBLEMA: Tiempo acumulado ({total_experiment_time:.3f}s) > duración original ({original_duration:.3f}s)")
+            debug_log(f"    PROBLEMA: Tiempo acumulado ({total_experiment_time:.3f}s) > duración original ({original_duration:.3f}s)")
         
         # Las variables participant_time_min y participant_time_max ya se calcularon al inicio
         
@@ -794,10 +685,10 @@ def get_complete_glyph_data_precalculated(image_id):
     patch_size = int(request.args.get('patch_size', 40))
     data_type = request.args.get('data_type', 'fixations', type=str)
     
-    print(f"🔧 REDIRIGIENDO API PRECALCULADA AL MÉTODO CORREGIDO para imagen {image_id}")
+    debug_log(f"🔧 REDIRIGIENDO API PRECALCULADA AL MÉTODO CORREGIDO para imagen {image_id}")
     return get_complete_glyph_data(image_id)
     
-    print(f" PRECALCULATED API: Imagen {image_id}, patch {patch_size}x{patch_size}")
+    debug_log(f" PRECALCULATED API: Imagen {image_id}, patch {patch_size}x{patch_size}")
     
     if not precalculated_service.is_available():
         return jsonify({
@@ -841,7 +732,7 @@ def get_complete_glyph_data_precalculated(image_id):
                     }
                     
                 except Exception as e:
-                    print(f" Error generando regiones semánticas para participante {participant_id}: {e}")
+                    debug_log(f" Error generando regiones semánticas para participante {participant_id}: {e}")
                     # Fallback sin regiones semánticas
                     participants_data[participant_id] = {
                         'fixations': participant_fixations,
@@ -871,11 +762,11 @@ def get_complete_glyph_data_precalculated(image_id):
             'performance_note': f'Processed in {processing_time:.3f}s using precalculated data'
         }
         
-        print(f" PRECALCULATED: Imagen {image_id} procesada en {processing_time:.3f}s")
+        debug_log(f" PRECALCULATED: Imagen {image_id} procesada en {processing_time:.3f}s")
         return jsonify(final_result)
         
     except Exception as e:
-        print(f" Error en API precalculada: {e}")
+        debug_log(f" Error en API precalculada: {e}")
         return jsonify({'error': f'Error in precalculated API: {str(e)}'})
 
 def get_gaze_points_data(image_id, patch_size=40):
@@ -890,7 +781,7 @@ def get_gaze_points_data(image_id, patch_size=40):
         JSON con datos de gaze points procesados
     """
     try:
-        print(f" Procesando gaze points para imagen {image_id}, patch_size={patch_size}")
+        debug_log(f" Procesando gaze points para imagen {image_id}, patch_size={patch_size}")
         
         if glyph_controller.data is None:
             return jsonify({'error': 'No data available'})
@@ -998,11 +889,11 @@ def get_gaze_points_data(image_id, patch_size=40):
             }
         }
         
-        print(f" Gaze points procesados: {total_gaze_points} puntos, {len(participants)} participantes")
+        debug_log(f" Gaze points procesados: {total_gaze_points} puntos, {len(participants)} participantes")
         return jsonify(response_data)
         
     except Exception as e:
-        print(f" Error procesando gaze points: {e}")
+        debug_log(f" Error procesando gaze points: {e}")
         return jsonify({'error': f'Error processing gaze points: {str(e)}'})
 
 def _generate_gaze_semantic_transitions(gaze_points, participant_id, image_id):
@@ -1076,7 +967,7 @@ def _generate_gaze_semantic_transitions(gaze_points, participant_id, image_id):
         }
         
     except Exception as e:
-        print(f" Error generando transiciones para gaze points: {e}")
+        debug_log(f" Error generando transiciones para gaze points: {e}")
         return {
             'sequence': [],
             'region_stats': {},
@@ -1102,15 +993,15 @@ def get_complete_glyph_data(image_id):
 
             service = get_precomputed_service()
             if service and service.fixations_df is not None:
-                print(f" ULTRA-FAST: Usando fijaciones pre-calculadas para imagen {image_id}")
+                debug_log(f" ULTRA-FAST: Usando fijaciones pre-calculadas para imagen {image_id}")
                 result = get_complete_glyph_data_precomputed(image_id, patch_size, service)
-                print(f" Pre-calculado completado exitosamente")
+                debug_log(f" Pre-calculado completado exitosamente")
                 return result
         except Exception as e:
-            print(f"  Servicio pre-calculado no disponible: {e}, usando fallback")
+            debug_log(f"  Servicio pre-calculado no disponible: {e}, usando fallback")
 
         # FALLBACK: Usar método original si no hay pre-calculado
-        print(f" FALLBACK: Usando método I-VT original para imagen {image_id}")
+        debug_log(f" FALLBACK: Usando método I-VT original para imagen {image_id}")
         
         if glyph_controller.data is None:
             return jsonify({'error': 'No data available'})
@@ -1160,7 +1051,7 @@ def get_complete_glyph_data(image_id):
             if len(participant_data) > 0:
                 # Usar .loc para asegurar que la asignación se aplique correctamente
                 participant_data.loc[:, 'Time'] = participant_data['Time'] - original_time_min
-                print(f"   Normalización P{participant_id}: min_original={original_time_min:.2f}, max_original={original_time_max:.2f}, ahora min={participant_data['Time'].min():.2f}, max={participant_data['Time'].max():.2f}")
+                debug_log(f"   Normalización P{participant_id}: min_original={original_time_min:.2f}, max_original={original_time_max:.2f}, ahora min={participant_data['Time'].min():.2f}, max={participant_data['Time'].max():.2f}")
 
             # Después de normalizar, los valores son: min=0.0, max=duración
             participant_time_min = 0.0
@@ -1183,7 +1074,7 @@ def get_complete_glyph_data(image_id):
                 continue
             
             #  NUEVO: Usar FIJACIONES I-VT en lugar de puntos raw
-            print(f" I-VT: Detectando fijaciones para participante {participant_id}...")
+            debug_log(f" I-VT: Detectando fijaciones para participante {participant_id}...")
             
             try:
                 from fixation_detection_ivt import get_fixations_ivt
@@ -1199,7 +1090,7 @@ def get_complete_glyph_data(image_id):
                 )
                 
                 if 'error' in fixations_result:
-                    print(f"  Error en I-VT para participante {participant_id}: {fixations_result['error']}")
+                    debug_log(f"  Error en I-VT para participante {participant_id}: {fixations_result['error']}")
                     # Crear datos vacíos si falla I-VT
                     duration = participant_time_max - participant_time_min
                     participants_data[int(participant_id)] = {
@@ -1217,7 +1108,7 @@ def get_complete_glyph_data(image_id):
                     continue
                 
                 fixations = fixations_result['fixations']
-                print(f" I-VT: Detectadas {len(fixations)} fijaciones para participante {participant_id}")
+                debug_log(f" I-VT: Detectadas {len(fixations)} fijaciones para participante {participant_id}")
 
                 # NOTA: Las fijaciones vienen con tiempos normalizados porque participant_data
                 # fue normalizado antes de pasarlo a get_fixations_ivt
@@ -1271,7 +1162,7 @@ def get_complete_glyph_data(image_id):
                         'point_count': fix['pointCount']
                     })
                 
-                print(f" I-VT: Clasificadas fijaciones por regiones semánticas para participante {participant_id}")
+                debug_log(f" I-VT: Clasificadas fijaciones por regiones semánticas para participante {participant_id}")
                 
                 # Agrupar fijaciones consecutivas por región para crear secuencias
                 sequence = []
@@ -1395,9 +1286,9 @@ def get_complete_glyph_data(image_id):
                 total_fixation_time = sum(stats['total_duration'] for stats in region_stats.values())
                 for region_name, stats in region_stats.items():
                     avg_duration = stats['total_duration'] / stats['visit_count'] if stats['visit_count'] > 0 else 0
-                    print(f"    [I-VT] P{participant_id} {region_name}: {stats['fixation_count']} fijaciones, {stats['total_duration']:.3f}s total, {avg_duration:.3f}s promedio")
+                    debug_log(f"    [I-VT] P{participant_id} {region_name}: {stats['fixation_count']} fijaciones, {stats['total_duration']:.3f}s total, {avg_duration:.3f}s promedio")
                 
-                print(f" I-VT: Procesadas {len(filtered_regions)} regiones basadas en fijaciones para participante {participant_id}")
+                debug_log(f" I-VT: Procesadas {len(filtered_regions)} regiones basadas en fijaciones para participante {participant_id}")
 
                 duration = participant_time_max - participant_time_min
                 participants_data[int(participant_id)] = {
@@ -1414,7 +1305,7 @@ def get_complete_glyph_data(image_id):
                 }
                 
             except Exception as e:
-                print(f" Error procesando fijaciones para participante {participant_id}: {e}")
+                debug_log(f" Error procesando fijaciones para participante {participant_id}: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1447,7 +1338,7 @@ def get_complete_glyph_data(image_id):
             
             return jsonify(response_data)
         except Exception as json_error:
-            print(f" ERROR AL SERIALIZAR JSON: {json_error}")
+            debug_log(f" ERROR AL SERIALIZAR JSON: {json_error}")
             import traceback
             traceback.print_exc()
             return jsonify({'error': f'Error serializing JSON: {str(json_error)}'})
@@ -1459,8 +1350,8 @@ def get_complete_glyph_data(image_id):
 @cache.cached(timeout=600, query_string=True)
 def get_area_analysis(image_id):
     """API para analizar un área específica seleccionada con brush D3."""
-    print(f" ENDPOINT CALLED: area-analysis for image {image_id}")
-    print(f" Request args: {dict(request.args)}")
+    debug_log(f" ENDPOINT CALLED: area-analysis for image {image_id}")
+    debug_log(f" Request args: {dict(request.args)}")
     try:
         # Obtener parámetros del área seleccionada
         x = request.args.get('x', type=int)
@@ -1469,7 +1360,7 @@ def get_area_analysis(image_id):
         height = request.args.get('height', type=int)
         data_type = request.args.get('data_type', 'fixations', type=str)
         
-        print(f" Parsed params: x={x}, y={y}, width={width}, height={height}, data_type={data_type}")
+        debug_log(f" Parsed params: x={x}, y={y}, width={width}, height={height}, data_type={data_type}")
         
         # Validar parámetros
         if any(param is None for param in [x, y, width, height]):
@@ -1478,8 +1369,8 @@ def get_area_analysis(image_id):
         if width < 10 or height < 10:
             return jsonify({'error': 'Area too small (minimum 10x10px)'})
         
-        print(f" Analyzing area: {width}x{height}px at ({x}, {y}) for image {image_id}, data_type: {data_type}")
-        print(f" DEBUG: Area coordinates - x:[{x}, {x+width}], y:[{y}, {y+height}]")
+        debug_log(f" Analyzing area: {width}x{height}px at ({x}, {y}) for image {image_id}, data_type: {data_type}")
+        debug_log(f" DEBUG: Area coordinates - x:[{x}, {x+width}], y:[{y}, {y+height}]")
         
         if glyph_controller.data is None:
             return jsonify({'error': 'No data available'})
@@ -1501,7 +1392,7 @@ def get_area_analysis(image_id):
             for p, v in _min_series.items()
         }
         for participant_id in participants:
-            print(f"   ⏰ Participante {participant_id}: tiempo de inicio imagen = {participant_min_times.get(int(participant_id), 0.0):.3f}s")
+            debug_log(f"   ⏰ Participante {participant_id}: tiempo de inicio imagen = {participant_min_times.get(int(participant_id), 0.0):.3f}s")
 
         # Procesar cada participante
         grouped = image_data.groupby('participante', sort=False)
@@ -1518,10 +1409,10 @@ def get_area_analysis(image_id):
 
             if data_type == 'fixations':
                 # Usar fijaciones I-VT
-                print(f" Processing fixations for participant {participant_id}")
+                debug_log(f" Processing fixations for participant {participant_id}")
                 try:
                     from fixation_detection_ivt import get_fixations_ivt
-                    print(f" I-VT import successful")
+                    debug_log(f" I-VT import successful")
 
                     fixations_result = get_fixations_ivt(
                         data=participant_data,
@@ -1549,14 +1440,14 @@ def get_area_analysis(image_id):
                             if fix.get('end') is not None:
                                 fix['end'] = fix['end'] - min_time      # Sin offset de 4 segundos
 
-                    print(f" DEBUG: Participant {participant_id} has {len(fixations)} total I-VT fixations")
+                    debug_log(f" DEBUG: Participant {participant_id} has {len(fixations)} total I-VT fixations")
                     
                     # Debug: mostrar rango de coordenadas para las primeras fijaciones
                     if len(fixations) > 0:
                         x_coords = [f['x_centroid'] for f in fixations[:5]]
                         y_coords = [f['y_centroid'] for f in fixations[:5]]
-                        print(f" DEBUG: First 5 fixation coordinates - X: {x_coords}, Y: {y_coords}")
-                        print(f" DEBUG: Area bounds - X: [{x}, {x+width}], Y: [{y}, {y+height}]")
+                        debug_log(f" DEBUG: First 5 fixation coordinates - X: {x_coords}, Y: {y_coords}")
+                        debug_log(f" DEBUG: Area bounds - X: [{x}, {x+width}], Y: [{y}, {y+height}]")
                     
                     # Filtrar fijaciones dentro del área
                     fixations_in_area = []
@@ -1564,7 +1455,7 @@ def get_area_analysis(image_id):
                         fx = fix['x_centroid']
                         fy = fix['y_centroid']
                         
-                        print(f"  Fixation {i+1}: x={fx:.1f}, y={fy:.1f}, in_area={x <= fx <= (x + width) and y <= fy <= (y + height)}")
+                        debug_log(f"  Fixation {i+1}: x={fx:.1f}, y={fy:.1f}, in_area={x <= fx <= (x + width) and y <= fy <= (y + height)}")
                         
                         # Verificar si la fijación está dentro del área
                         if x <= fx <= (x + width) and y <= fy <= (y + height):
@@ -1585,7 +1476,7 @@ def get_area_analysis(image_id):
                                 'region': region
                             })
                     
-                    print(f" DEBUG: Participant {participant_id} has {len(fixations_in_area)} fixations in selected area")
+                    debug_log(f" DEBUG: Participant {participant_id} has {len(fixations_in_area)} fixations in selected area")
                     
                     # Contar por región
                     region_stats = {'sky': 0, 'building': 0, 'road': 0, 'unknown': 0}
@@ -1600,10 +1491,10 @@ def get_area_analysis(image_id):
                     }
                     
                 except ImportError as ie:
-                    print(f" Error importing I-VT: {ie}")
+                    debug_log(f" Error importing I-VT: {ie}")
                     return jsonify({'error': 'I-VT fixation detection not available'})
                 except Exception as fe:
-                    print(f" Error detecting fixations for participant {participant_id}: {fe}")
+                    debug_log(f" Error detecting fixations for participant {participant_id}: {fe}")
                     participants_data[int(participant_id)] = {
                         'fixations_in_area': [],
                         'total_fixations': 0,
@@ -1676,11 +1567,11 @@ def get_area_analysis(image_id):
                 
                 # Mapear image_id con ubicación en eval_data
                 location_key = str(image_id)
-                print(f" Buscando scores para image_id: {location_key}")
+                debug_log(f" Buscando scores para image_id: {location_key}")
                 if location_key in eval_data:
                     location_data = eval_data[location_key]
                     score_participants = location_data.get('score_participant', [])
-                    print(f" Participantes con scores encontrados en image {location_key}: {len(score_participants)}")
+                    debug_log(f" Participantes con scores encontrados en image {location_key}: {len(score_participants)}")
                     
                     # Extraer puntajes por participante (mismo formato que radial-glyph)
                     for score_entry in score_participants:
@@ -1693,28 +1584,28 @@ def get_area_analysis(image_id):
                                 'gender': score_entry.get('gener'),  # Note: 'gener' en el JSON
                                 'state': score_entry.get('state')
                             }
-                            print(f"  👤 Participante {participant_id}: score={score}")
+                            debug_log(f"  👤 Participante {participant_id}: score={score}")
                     
-                    print(f"📋 Total participants with scores: {len(participant_scores)}")
+                    debug_log(f"📋 Total participants with scores: {len(participant_scores)}")
                 else:
-                    print(f" No evaluation data found for image {image_id}")
-                    print(f"📋 Available keys: {list(eval_data.keys())[:10]}...")
+                    debug_log(f" No evaluation data found for image {image_id}")
+                    debug_log(f"📋 Available keys: {list(eval_data.keys())[:10]}...")
             else:
-                print(f" Evaluation data file not found at: {eval_data_path}")
+                debug_log(f" Evaluation data file not found at: {eval_data_path}")
         except Exception as e:
-            print(f" Error loading evaluation data: {e}")
+            debug_log(f" Error loading evaluation data: {e}")
         
         # 🕒 CALCULAR TIEMPOS MÍNIMOS POR PARTICIPANTE (image_min_times) — vectorizado
         image_min_times = {}
         try:
-            print(f" Calculando image_min_times para imagen {image_id}")
+            debug_log(f" Calculando image_min_times para imagen {image_id}")
             image_data = glyph_controller.data[glyph_controller.data['ImageName'] == image_id]
             _min_s = pd.to_numeric(image_data['Time'], errors='coerce').groupby(image_data['participante']).min()
             image_min_times = {int(p): float(v) if pd.notna(v) else 0.0 for p, v in _min_s.items()}
             for p, t in image_min_times.items():
-                print(f"  ⏰ Participante {p}: tiempo mínimo = {t:.3f}s")
+                debug_log(f"  ⏰ Participante {p}: tiempo mínimo = {t:.3f}s")
         except Exception as e:
-            print(f" Error calculando image_min_times: {e}")
+            debug_log(f" Error calculando image_min_times: {e}")
 
         # 📊 GENERAR data_for_analysis PARA EL FRONTEND
         # Flatten fixations_in_area de todos los participantes en una única lista
@@ -1728,7 +1619,7 @@ def get_area_analysis(image_id):
                         fix['participante'] = participant_id
                     data_for_analysis.append(fix)
 
-        print(f" data_for_analysis generada con {len(data_for_analysis)} items")
+        debug_log(f" data_for_analysis generada con {len(data_for_analysis)} items")
 
         result = {
             'area': {
@@ -1751,14 +1642,14 @@ def get_area_analysis(image_id):
             'success': True
         }
         
-        print(f" Area analysis completed: {total_points} points found across {len(participants)} participants")
-        print(f" Global region stats: {global_region_stats}")
-        print(f"📤 Sending result with {len(participants_data)} participant entries")
+        debug_log(f" Area analysis completed: {total_points} points found across {len(participants)} participants")
+        debug_log(f" Global region stats: {global_region_stats}")
+        debug_log(f"📤 Sending result with {len(participants_data)} participant entries")
         
         return jsonify(clean_for_json(result))
         
     except Exception as e:
-        print(f" Error in area analysis: {e}")
+        debug_log(f" Error in area analysis: {e}")
         return jsonify({'error': f'Error analyzing area: {str(e)}'})
 
 @glyph_bp.route('/api/glyph/image/<int:image_id>')
@@ -1779,85 +1670,73 @@ def get_image(image_id):
         
         for image_path in possible_paths:
             if os.path.exists(image_path):
-                print(f" Sirviendo imagen: {image_path}")
+                debug_log(f" Sirviendo imagen: {image_path}")
                 return send_file(image_path)
         
-        print(f" Imagen no encontrada para ID {image_id}. Rutas verificadas:")
+        debug_log(f" Imagen no encontrada para ID {image_id}. Rutas verificadas:")
         for path in possible_paths:
-            print(f"   - {path} (existe: {os.path.exists(path)})")
+            debug_log(f"   - {path} (existe: {os.path.exists(path)})")
             
         abort(404, description=f"Imagen {image_id} no encontrada")
         
     except Exception as e:
-        print(f"Error sirviendo imagen {image_id}: {e}")
+        debug_log(f"Error sirviendo imagen {image_id}: {e}")
         abort(500, description=str(e))
 
 def get_complete_glyph_data_precomputed(image_id, patch_size, service):
-    """Función ultra-optimizada usando fijaciones pre-calculadas."""
-    import time
+    """Funcion ultra-optimizada usando fijaciones pre-calculadas."""
     start_time = time.time()
-    
+
     try:
-        # Obtener participantes disponibles en datos originales para esta imagen
         if glyph_controller.data is not None:
             image_data = glyph_controller.data[glyph_controller.data['ImageName'] == image_id]
             all_original_participants = sorted(image_data['participante'].unique())
         else:
             all_original_participants = []
-        
-        # Obtener fijaciones pre-calculadas disponibles
+
         all_fixations = service.get_fixations_fast(image_id, patch_size=patch_size)
-        
         if 'error' in all_fixations:
-            # Si no hay pre-calculados para esta imagen, usar método original completo
-            print(f" No precomputed data for image {image_id}, using original method")
+            debug_log(f" No precomputed data for image {image_id}, using original method")
             return get_complete_glyph_data_original(image_id)
-        
-        # Participantes con datos pre-calculados
-        precomputed_participants = list(set([f['participante'] for f in all_fixations['fixations']]))
-        
-        # Participantes que necesitan procesamiento original
+
+        precomputed_fixations_by_participant = {}
+        for fixation in all_fixations.get('fixations', []):
+            participant_key = int(fixation.get('participante', -1))
+            precomputed_fixations_by_participant.setdefault(participant_key, []).append(fixation)
+
+        precomputed_participants = set(precomputed_fixations_by_participant.keys())
         missing_participants = [p for p in all_original_participants if p not in precomputed_participants]
-        
-        # Usar TODOS los participantes (pre-calculados + originales) - convertir a int nativo
         participants = [int(p) for p in sorted(all_original_participants)]
-        
-        print(f" HYBRID: {len(precomputed_participants)} precomputed + {len(missing_participants)} original participants")
-        
-        # Procesar cada participante usando transiciones pre-calculadas
+
+        debug_log(f" HYBRID: {len(precomputed_participants)} precomputed + {len(missing_participants)} original participants")
+
         participants_data = {}
-        
+
         for participant_id in participants:
+            participant_fixations = precomputed_fixations_by_participant.get(participant_id, [])
+
             if participant_id in precomputed_participants:
-                #  USAR DATOS PRE-CALCULADOS
-                print(f" Using precomputed data for participant {participant_id}")
+                debug_log(f" Using precomputed data for participant {participant_id}")
                 transitions = service.get_semantic_transitions_fast(image_id, participant_id)
-                
-                # Si datos pre-calculados no tienen regiones válidas, usar fallback
-                if len(transitions['region_stats']) == 0 or all(region == 'unknown' for region in transitions['region_stats'].keys()):
-                    print(f"  Precomputed regions invalid for participant {participant_id}, using fallback")
+                region_stats = transitions.get('region_stats', {}) if isinstance(transitions, dict) else {}
+                if not region_stats or all(region == 'unknown' for region in region_stats.keys()):
+                    debug_log(f"  Precomputed regions invalid for participant {participant_id}, using fallback")
                     transitions = _process_participant_with_original_method(image_id, participant_id, patch_size)
             else:
-                #  USAR MÉTODO ORIGINAL para participantes faltantes
-                print(f" Using original method for missing participant {participant_id}")
+                debug_log(f" Using original method for missing participant {participant_id}")
                 transitions = _process_participant_with_original_method(image_id, participant_id, patch_size)
-            
-            # Obtener tiempos absolutos de este participante para esta imagen
-            participant_fixations = [f for f in all_fixations['fixations'] if f['participante'] == participant_id]
+
             if participant_fixations:
-                original_start = float(min([f['start_time'] for f in participant_fixations], default=0))
-                original_end = float(max([f['end_time'] for f in participant_fixations], default=0))
+                original_start = float(min((f.get('start_time', 0.0) for f in participant_fixations), default=0.0))
+                original_end = float(max((f.get('end_time', 0.0) for f in participant_fixations), default=0.0))
                 duration = original_end - original_start
             else:
                 original_start = 0.0
-                original_end = 0.0
                 duration = 0.0
 
-            # Normalizar los tiempos en la timeline
             normalized_timeline = []
             for item in transitions.get('timeline', []):
-                normalized_item = dict(item)  # Copiar item
-                # Normalizar tiempos: restar el original_start para obtener tiempos relativos
+                normalized_item = dict(item)
                 if 'start_time' in normalized_item and original_start > 0:
                     normalized_item['start_time'] = normalized_item['start_time'] - original_start
                 if 'end_time' in normalized_item and original_start > 0:
@@ -1865,131 +1744,89 @@ def get_complete_glyph_data_precomputed(image_id, patch_size, service):
                 normalized_timeline.append(normalized_item)
 
             participants_data[int(participant_id)] = {
-                'sequence': transitions['sequence'],
-                'region_stats': transitions['region_stats'],
+                'sequence': transitions.get('sequence', []),
+                'region_stats': transitions.get('region_stats', {}),
                 'timeline': normalized_timeline,
-                'total_transitions': transitions['total_transitions'],
-                'unique_regions': transitions['unique_regions'],
-                'time_range': {
-                    'start': 0.0,  # Normalizado: siempre comienza en 0
-                    'end': safe_json_value(duration, 0.0),  # Normalizado: duración total del viewing
-                    'duration': safe_json_value(duration, 0.0)
-                }
+                'total_transitions': transitions.get('total_transitions', 0),
+                'unique_regions': transitions.get('unique_regions', 0),
+                'time_range': {'start': 0.0, 'end': safe_json_value(duration, 0.0), 'duration': safe_json_value(duration, 0.0)}
             }
-        
-        # Generar attention_matrix requerida por el heatmap (TODOS los participantes)
+
+        def _patch_index_from_fixation(fixation):
+            patch_field = f'patch_{int(patch_size)}_index'
+            patch_idx = fixation.get(patch_field, fixation.get('patch_index'))
+            if patch_idx is not None:
+                try:
+                    return int(patch_idx)
+                except (TypeError, ValueError):
+                    pass
+            x_centroid = float(fixation.get('x_centroid', 0.0))
+            y_centroid = float(fixation.get('y_centroid', 0.0))
+            cols = 800 // patch_size
+            return int(y_centroid // patch_size) * cols + int(x_centroid // patch_size)
+
+        def _build_attention_row_from_fixations(fixations, total_patches):
+            row = [0] * total_patches
+            for fixation in fixations:
+                patch_idx = _patch_index_from_fixation(fixation)
+                if 0 <= patch_idx < total_patches:
+                    row[patch_idx] += 1
+            return row
+
         total_patches = (800 // patch_size) * (600 // patch_size)
         attention_matrix = []
-        
+
         for participant_id in participants:
-            participant_row = [0] * total_patches
-            
             if participant_id in precomputed_participants:
-                # Usar datos pre-calculados
-                participant_fixations = [f for f in all_fixations['fixations'] if f['participante'] == participant_id]
-                for fixation in participant_fixations:
-                    patch_idx = fixation['patch_index']  # Ya usa el patch_size correcto desde el servicio
-                    if 0 <= patch_idx < total_patches:
-                        participant_row[patch_idx] += 1
+                participant_fixations = precomputed_fixations_by_participant.get(participant_id, [])
+                participant_row = _build_attention_row_from_fixations(participant_fixations, total_patches)
             else:
-                # Usar método original para calcular fijaciones
+                participant_row = [0] * total_patches
                 if glyph_controller.data is not None:
                     try:
-                        # Calcular fijaciones manualmente para este participante
                         participant_data = glyph_controller.data[
-                            (glyph_controller.data['ImageName'] == image_id) & 
+                            (glyph_controller.data['ImageName'] == image_id) &
                             (glyph_controller.data['participante'] == participant_id)
                         ]
-                        
                         if len(participant_data) > 0:
-                            #  PRIORIDAD: Intentar usar fijaciones pre-calculadas primero
-                            if precalculated_service.is_available():
+                            if precalculated_service and precalculated_service.is_available():
                                 try:
-                                    participant_fixations = precalculated_service.get_fixations_for_participant_image(
-                                        participant_id, image_id
-                                    )
-                                    
-                                    # Convertir a patch indices según patch_size
-                                    cols = 800 // patch_size
-                                    for fixation in participant_fixations:
-                                        x_centroid = fixation['x_centroid']
-                                        y_centroid = fixation['y_centroid']
-                                        patch_x = int(x_centroid // patch_size)
-                                        patch_y = int(y_centroid // patch_size)
-                                        patch_idx = patch_y * cols + patch_x
-                                        
-                                        if 0 <= patch_idx < total_patches:
-                                            participant_row[patch_idx] += 1
-                                    
-                                    print(f" ULTRA-FAST: Participante {participant_id} usando fijaciones pre-calculadas")
-                                    
+                                    participant_fixations = precalculated_service.get_fixations_for_participant_image(participant_id, image_id)
+                                    participant_row = _build_attention_row_from_fixations(participant_fixations, total_patches)
+                                    debug_log(f" ULTRA-FAST: Participante {participant_id} usando fijaciones pre-calculadas")
                                 except Exception as e:
-                                    print(f" Fallback a cálculo en tiempo real para participante {participant_id}: {e}")
-                                    # Fallback a método original
+                                    debug_log(f" Fallback a calculo en tiempo real para participante {participant_id}: {e}")
                                     from fixation_detection_ivt import FixationDetectorIVT
                                     detector = FixationDetectorIVT()
                                     fixations = detector.detect_fixations(participant_data, 800, 600)
-                                    
-                                    cols = 800 // patch_size
-                                    for fixation in fixations:
-                                        x_centroid = fixation['x_centroid']
-                                        y_centroid = fixation['y_centroid']
-                                        patch_x = int(x_centroid // patch_size)
-                                        patch_y = int(y_centroid // patch_size)
-                                        patch_idx = patch_y * cols + patch_x
-                                        
-                                        if 0 <= patch_idx < total_patches:
-                                            participant_row[patch_idx] += 1
+                                    participant_row = _build_attention_row_from_fixations(fixations, total_patches)
                             else:
-                                # Método original si no hay pre-calculadas
                                 from fixation_detection_ivt import FixationDetectorIVT
                                 detector = FixationDetectorIVT()
                                 fixations = detector.detect_fixations(participant_data, 800, 600)
-                                
-                                cols = 800 // patch_size
-                                for fixation in fixations:
-                                    x_centroid = fixation['x_centroid']
-                                    y_centroid = fixation['y_centroid']
-                                    patch_x = int(x_centroid // patch_size)
-                                    patch_y = int(y_centroid // patch_size)
-                                    patch_idx = patch_y * cols + patch_x
-                                    
-                                    if 0 <= patch_idx < total_patches:
-                                        participant_row[patch_idx] += 1
+                                participant_row = _build_attention_row_from_fixations(fixations, total_patches)
                     except Exception as e:
-                        print(f" Error generating attention matrix for participant {participant_id}: {e}")
-            
+                        error_log(f" Error generating attention matrix for participant {participant_id}: {e}")
+
             attention_matrix.append(participant_row)
-        
-        # Generar topic modeling completo (incluyendo attention_matrix)
+
+        active_patch_indices = [f.get('patch_index') for f in all_fixations.get('fixations', []) if f.get('patch_index') is not None]
         topic_modeling = {
             'participants': participants,
-            'attention_matrix': attention_matrix,  # 🔥 CRÍTICO: Requerido por heatmap
-            'config': {
-                'patch_size': patch_size,
-                'image_width': 800,
-                'image_height': 600,
-                'total_patches': total_patches
-            },
-            'statistics': {
-                'total_fixations': len(all_fixations['fixations']),
-                'participants': len(participants),
-                'active_patches': len(set([f['patch_index'] for f in all_fixations['fixations']])),
-                'source': 'precomputed_ultra_fast'
-            }
+            'attention_matrix': attention_matrix,
+            'config': {'patch_size': patch_size, 'image_width': 800, 'image_height': 600, 'total_patches': total_patches},
+            'statistics': {'total_fixations': len(all_fixations.get('fixations', [])), 'participants': len(participants), 'active_patches': len(set(active_patch_indices)), 'source': 'precomputed_ultra_fast'}
         }
-        
-        # Generar data_for_analysis para el frontend (flatten timeline items)
+
         data_for_analysis = []
         for participant_id in participants:
             p_timeline = participants_data[int(participant_id)].get('timeline', [])
             for timeline_item in p_timeline:
-                # Convertir cada item de timeline a formato compatible con frontend
                 data_for_analysis.append({
                     'participante': participant_id,
                     'ImageIndex': image_id,
                     'ImageName': image_id,
-                    'Time': timeline_item.get('start_time', 0.0),  # Usar start_time (normalizado)
+                    'Time': timeline_item.get('start_time', 0.0),
                     'start': timeline_item.get('start_time', 0.0),
                     'end': timeline_item.get('end_time', 0.0),
                     'duration': timeline_item.get('duration', 0.0),
@@ -2001,26 +1838,24 @@ def get_complete_glyph_data_precomputed(image_id, patch_size, service):
                     'pointCount': timeline_item.get('fixation_count', 1)
                 })
 
-        end_time = time.time()
-        processing_time = end_time - start_time
-
+        processing_time = time.time() - start_time
         result = {
             'image_id': image_id,
             'participants': participants,
             'participants_data': participants_data,
-            'data_for_analysis': data_for_analysis,  # Para el frontend (normalized times)
+            'data_for_analysis': data_for_analysis,
             'topic_modeling': topic_modeling,
             'processing_time': processing_time,
             'optimization': 'precomputed_csv',
-            'speedup': f"~{30:.0f}x faster than I-VT"
+            'speedup': f'~{30:.0f}x faster than I-VT'
         }
 
-        print(f" ULTRA-FAST COMPLETE: Imagen {image_id} procesada en {processing_time:.3f}s (vs ~15-90s normal)")
-        print(f"  data_for_analysis: {len(data_for_analysis)} items con tiempos normalizados")
+        debug_log(f" ULTRA-FAST COMPLETE: Imagen {image_id} procesada en {processing_time:.3f}s (vs ~15-90s normal)")
+        debug_log(f"  data_for_analysis: {len(data_for_analysis)} items con tiempos normalizados")
         return jsonify(result)
-        
+
     except Exception as e:
-        print(f" Error en modo ultra-fast: {e}")
+        error_log(f" Error en modo ultra-fast: {e}")
         return jsonify({'error': f'Error in precomputed mode: {str(e)}'})
 
 def _process_regions_fallback(participant_data, MIN_STAY_DURATION, MAX_STAY_DURATION, participant_id):
@@ -2081,7 +1916,7 @@ def _process_regions_fallback(participant_data, MIN_STAY_DURATION, MAX_STAY_DURA
             
             current_group = []
     
-    print(f"  FALLBACK: Procesadas {len(filtered_regions)} regiones para participante {participant_id}")
+    debug_log(f"  FALLBACK: Procesadas {len(filtered_regions)} regiones para participante {participant_id}")
     return filtered_regions
 
 def _convert_regions_to_transitions_format(regions):
@@ -2196,12 +2031,12 @@ def _process_participant_with_original_method(image_id, participant_id, patch_si
             return {'sequence': [], 'region_stats': {}, 'timeline': [], 'total_transitions': 0, 'unique_regions': 0}
 
     except Exception as e:
-        print(f"Error processing participant {participant_id} with original method: {e}")
+        debug_log(f"Error processing participant {participant_id} with original method: {e}")
         return {'sequence': [], 'region_stats': {}, 'timeline': [], 'total_transitions': 0, 'unique_regions': 0}
 
 def get_complete_glyph_data_original(image_id):
     """Función para usar método 100% original cuando no hay datos pre-calculados."""
-    print(f" FALLBACK: Usando método I-VT original completo para imagen {image_id}")
+    debug_log(f" FALLBACK: Usando método I-VT original completo para imagen {image_id}")
     
     if glyph_controller.data is None:
         return jsonify({'error': 'No data available'})
@@ -2224,3 +2059,6 @@ def get_complete_glyph_data_original(image_id):
         'message': 'Using original I-VT method due to missing precomputed data',
         **topic_result
     })
+
+
+

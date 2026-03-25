@@ -2,6 +2,7 @@
 
 import os, json, math
 import pandas as pd
+from app.shared.logging_utils import debug_log, error_log
 
 class IVTCacheService:
     _instance = None
@@ -32,10 +33,10 @@ class IVTCacheService:
             base = os.path.dirname(os.path.abspath(__file__))
             data_path = os.path.join(base, '..', '..', 'static', 'data', 'df_final1.csv')
             df = pd.read_csv(data_path)
-            print(f"IVTCacheService: gaze data loaded ({len(df)} rows)")
+            debug_log(f"IVTCacheService: gaze data loaded ({len(df)} rows)")
             return df
         except Exception as e:
-            print(f"IVTCacheService: error loading gaze data: {e}")
+            error_log(f"IVTCacheService: error loading gaze data: {e}")
             return None
 
     def _load_ivt_cache(self):
@@ -44,13 +45,13 @@ class IVTCacheService:
             data_path = os.path.join(base, '..', '..', 'static', 'data', 'ivt_precalculated.csv')
             if os.path.exists(data_path):
                 df = pd.read_csv(data_path)
-                print(f"IVTCacheService: IVT cache loaded ({len(df)} rows)")
+                debug_log(f"IVTCacheService: IVT cache loaded ({len(df)} rows)")
                 return df
             else:
-                print(f"IVTCacheService: IVT cache file not found at {data_path}")
+                error_log(f"IVTCacheService: IVT cache file not found at {data_path}")
                 return None
         except Exception as e:
-            print(f"IVTCacheService: error loading IVT cache: {e}")
+            error_log(f"IVTCacheService: error loading IVT cache: {e}")
             return None
 
     def _load_hololens_data(self):
@@ -60,12 +61,12 @@ class IVTCacheService:
             if os.path.exists(data_path):
                 with open(data_path, 'r') as f:
                     data = json.loads(f.read())
-                print(f"IVTCacheService: hololens data loaded ({len(data)} images)")
+                debug_log(f"IVTCacheService: hololens data loaded ({len(data)} images)")
                 return data
-            print(f"IVTCacheService: hololens data file not found at {data_path}")
+            error_log(f"IVTCacheService: hololens data file not found at {data_path}")
             return {}
         except Exception as e:
-            print(f"IVTCacheService: error loading hololens data: {e}")
+            error_log(f"IVTCacheService: error loading hololens data: {e}")
             return {}
 
     def _build_cache_by_image(self, df, image_column='ImageName'):
@@ -81,7 +82,7 @@ class IVTCacheService:
                     continue
                 cache[key] = group
         except Exception as e:
-            print(f"IVTCacheService: warning building cache by image: {e}")
+            error_log(f"IVTCacheService: warning building cache by image: {e}")
         return cache
 
     def _build_min_time_cache(self, df, time_column):
@@ -105,7 +106,7 @@ class IVTCacheService:
                 image_cache = cache.setdefault(image_key, {})
                 image_cache[participant_key] = min_time_val
         except Exception as e:
-            print(f"IVTCacheService: warning building min time cache ({time_column}): {e}")
+            error_log(f"IVTCacheService: warning building min time cache ({time_column}): {e}")
         return cache
 
     def _build_participant_scores(self, full_data):
@@ -171,3 +172,5 @@ class IVTCacheService:
 
 def get_ivt_cache_service():
     return IVTCacheService()
+
+

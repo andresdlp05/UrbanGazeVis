@@ -6,6 +6,7 @@ Permite cargar diferentes CSVs según el tipo de segmentación seleccionado
 import pandas as pd
 import os
 import json
+from app.shared.logging_utils import debug_log, error_log
 
 class DataService:
     """Singleton para gestionar múltiples datasets de eye tracking"""
@@ -21,7 +22,8 @@ class DataService:
     def __init__(self):
         if not self._initialized:
             self.base_path = os.path.join(os.path.dirname(__file__), '..', '..')
-            self.data_cache = {}  # Cache de datasets cargados
+            self.data_cache = {}  # Cache lógico por dataset_select
+            self.file_cache = {}  # Cache físico por ruta CSV (evita duplicar DataFrames)
             self.scores_data = None
             self._load_scores()
             self._initialized = True
@@ -33,11 +35,11 @@ class DataService:
             if os.path.exists(scores_path):
                 with open(scores_path, 'r') as f:
                     self.scores_data = json.load(f)
-                print(f"DataService: Scores cargados ({len(self.scores_data)} imágenes)")
+                debug_log(f"DataService: Scores cargados ({len(self.scores_data)} imágenes)")
             else:
-                print(f"ADVERTENCIA: DataService: Archivo de scores no encontrado en {scores_path}")
+                error_log(f"ADVERTENCIA: DataService: Archivo de scores no encontrado en {scores_path}")
         except Exception as e:
-            print(f"Error cargando scores: {e}")
+            error_log(f"Error cargando scores: {e}")
 
     def get_scores_data(self):
         """Retorna los scores de participantes"""
@@ -67,56 +69,63 @@ class DataService:
 
         # Validar dataset_select
         if dataset_select not in dataset_files:
-            print(f"ADVERTENCIA: Dataset '{dataset_select}' no reconocido, usando 'main_class'")
+            error_log(f"ADVERTENCIA: Dataset '{dataset_select}' no reconocido, usando 'main_class'")
             dataset_select = 'main_class'
 
         # Verificar si ya está en cache
         if dataset_select in self.data_cache:
-            print(f"DataService: Usando cache para dataset '{dataset_select}'")
+            debug_log(f"DataService: Usando cache para dataset '{dataset_select}'")
             return self.data_cache[dataset_select]
 
         # Cargar dataset
         csv_path = dataset_files[dataset_select]
         full_path = os.path.join(self.base_path, csv_path)
 
+        # Reusar DataFrame si ya está cargado para este archivo físico
+        if full_path in self.file_cache:
+            self.data_cache[dataset_select] = self.file_cache[full_path]
+            debug_log(f"DataService: Reusando DataFrame compartido para '{dataset_select}'")
+            return self.data_cache[dataset_select]
+
         try:
-            print(f"DataService: Cargando dataset '{dataset_select}' desde {csv_path}...")
+            debug_log(f"DataService: Cargando dataset '{dataset_select}' desde {csv_path}...")
             df = pd.read_csv(full_path)
 
-            # Guardar en cache
+            # Guardar en cache físico y lógico (comparten referencia)
+            self.file_cache[full_path] = df
             self.data_cache[dataset_select] = df
 
-            print(f"✅ DataService: Dataset '{dataset_select}' cargado ({len(df)} filas, {len(df.columns)} columnas)")
+            debug_log(f"✅ DataService: Dataset '{dataset_select}' cargado ({len(df)} filas, {len(df.columns)} columnas)")
 
             # Mostrar columnas disponibles para debug
             if 'main_class' in df.columns:
-                print(f"   Columnas encontradas: main_class ✅")
+                debug_log(f"   Columnas encontradas: main_class ✅")
             if 'group' in df.columns:
-                print(f"   Columnas encontradas: group ✅")
+                debug_log(f"   Columnas encontradas: group ✅")
             elif 'group_name' in df.columns:
-                print(f"   Columnas encontradas: group_name ✅")
+                debug_log(f"   Columnas encontradas: group_name ✅")
             elif 'grupo' in df.columns:
-                print(f"   Columnas encontradas: grupo ✅")
+                debug_log(f"   Columnas encontradas: grupo ✅")
 
             return df
 
         except FileNotFoundError:
-            print(f"❌ ERROR: Archivo no encontrado: {full_path}")
-            print(f"   Asegúrate de que el archivo existe o descarga los datos necesarios")
+            error_log(f"❌ ERROR: Archivo no encontrado: {full_path}")
+            error_log(f"   Asegúrate de que el archivo existe o descarga los datos necesarios")
 
             # Fallback a main_class si el archivo no existe
             if dataset_select != 'main_class':
-                print(f"   Usando fallback a 'main_class'...")
+                error_log(f"   Usando fallback a 'main_class'...")
                 return self.get_data_by_dataset('main_class')
 
             return None
 
         except Exception as e:
-            print(f"❌ ERROR cargando dataset '{dataset_select}': {e}")
+            error_log(f"❌ ERROR cargando dataset '{dataset_select}': {e}")
 
             # Fallback a main_class en caso de error
             if dataset_select != 'main_class':
-                print(f"   Usando fallback a 'main_class'...")
+                error_log(f"   Usando fallback a 'main_class'...")
                 return self.get_data_by_dataset('main_class')
 
             return None
@@ -132,10 +141,11 @@ class DataService:
         if dataset_select:
             if dataset_select in self.data_cache:
                 del self.data_cache[dataset_select]
-                print(f"DataService: Cache limpiado para '{dataset_select}'")
+                debug_log(f"DataService: Cache limpiado para '{dataset_select}'")
         else:
             self.data_cache.clear()
-            print("DataService: Todo el cache limpiado")
+            self.file_cache.clear()
+            debug_log("DataService: Todo el cache limpiado")
 
     def get_available_datasets(self):
         """Retorna lista de datasets disponibles"""
@@ -168,23 +178,24 @@ if __name__ == '__main__':
     # Test del servicio
     service = get_data_service()
 
-    print("\n=== Testing DataService ===\n")
+    debug_log("\n=== Testing DataService ===\n")
 
     # Test main_class
     df_main = service.get_data_by_dataset('main_class')
-    print(f"\nmain_class: {len(df_main) if df_main is not None else 'ERROR'} filas")
+    debug_log(f"\nmain_class: {len(df_main) if df_main is not None else 'ERROR'} filas")
 
     # Test grouped
     df_grouped = service.get_data_by_dataset('grouped')
-    print(f"grouped: {len(df_grouped) if df_grouped is not None else 'ERROR'} filas")
+    debug_log(f"grouped: {len(df_grouped) if df_grouped is not None else 'ERROR'} filas")
 
     # Test disorder
     df_disorder = service.get_data_by_dataset('disorder')
-    print(f"disorder: {len(df_disorder) if df_disorder is not None else 'ERROR'} filas")
+    debug_log(f"disorder: {len(df_disorder) if df_disorder is not None else 'ERROR'} filas")
 
     # Test grouped_disorder
     df_grouped_disorder = service.get_data_by_dataset('grouped_disorder')
-    print(f"grouped_disorder: {len(df_grouped_disorder) if df_grouped_disorder is not None else 'ERROR'} filas")
+    debug_log(f"grouped_disorder: {len(df_grouped_disorder) if df_grouped_disorder is not None else 'ERROR'} filas")
 
     # Info de dataset
-    print(service.dataset_info('main_class'))
+    debug_log(service.dataset_info('main_class'))
+
