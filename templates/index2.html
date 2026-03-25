@@ -308,9 +308,49 @@ function waitForD3Libraries() {
     const glyphScript = document.createElement('script');
     glyphScript.src = "{{ url_for('static', filename='glyph_brush2.js') }}?v=" + new Date().getTime();
     glyphScript.onload = function() {
-        // Cuando glyph_brush cargue, cargar main.js
+        // Cuando glyph_brush cargue, cargar main2.js (globals + RadialGlyph)
         const mainScript = document.createElement('script');
         mainScript.src = "{{ url_for('static', filename='main2.js') }}?v=" + new Date().getTime();
+        mainScript.onload = function() {
+            const overlayScript = document.createElement('script');
+            overlayScript.src = "{{ url_for('static', filename='js/overlay.js') }}?v=" + new Date().getTime();
+            overlayScript.onload = function() {
+                const segmentationScript = document.createElement('script');
+                segmentationScript.src = "{{ url_for('static', filename='js/segmentation.js') }}?v=" + new Date().getTime();
+                segmentationScript.onload = function() {
+                    const scarfScript = document.createElement('script');
+                    scarfScript.src = "{{ url_for('static', filename='js/scarf.js') }}?v=" + new Date().getTime();
+                    scarfScript.onload = function() {
+                        const heatmapVizScript = document.createElement('script');
+                        heatmapVizScript.src = "{{ url_for('static', filename='js/heatmap-viz.js') }}?v=" + new Date().getTime();
+                        heatmapVizScript.onload = function() {
+                            const chartsScript = document.createElement('script');
+                            chartsScript.src = "{{ url_for('static', filename='js/charts.js') }}?v=" + new Date().getTime();
+                            chartsScript.onload = function() {
+                                const brushScript = document.createElement('script');
+                                brushScript.src = "{{ url_for('static', filename='js/brush.js') }}?v=" + new Date().getTime();
+                                brushScript.onload = function() {
+                                    const controlsScript = document.createElement('script');
+                                    controlsScript.src = "{{ url_for('static', filename='js/controls.js') }}?v=" + new Date().getTime();
+                                    controlsScript.onload = function() {
+                                        const initScript = document.createElement('script');
+                                        initScript.src = "{{ url_for('static', filename='js/init.js') }}?v=" + new Date().getTime();
+                                        document.body.appendChild(initScript);
+                                    };
+                                    document.body.appendChild(controlsScript);
+                                };
+                                document.body.appendChild(brushScript);
+                            };
+                            document.body.appendChild(chartsScript);
+                        };
+                        document.body.appendChild(heatmapVizScript);
+                    };
+                    document.body.appendChild(scarfScript);
+                };
+                document.body.appendChild(segmentationScript);
+            };
+            document.body.appendChild(overlayScript);
+        };
         document.body.appendChild(mainScript);
     };
     document.body.appendChild(glyphScript);
