@@ -16,6 +16,16 @@ loadImageScores().then(() => {
     populateSelect("img-select-v3", allImages, "img", all=false);
 });
 
+// Toggle de orden de imágenes (Score / Nº)
+document.getElementById('img-sort-toggle').addEventListener('change', function() {
+    const previousValue = document.getElementById('img-select').value;
+    populateSelect("img-select", allImages, "img", false);
+    const select = document.getElementById('img-select');
+    if (previousValue && [...select.options].some(o => o.value === previousValue)) {
+        select.value = previousValue;
+    }
+});
+
 // Add event listeners
 document.getElementById("img-select").addEventListener("change", function() {
     const selectedImage = this.value;

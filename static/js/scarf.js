@@ -119,7 +119,7 @@ function visualizeScarfPlot(data) {
         .attr('font-size', '12px')
         .style('cursor', 'pointer') // Indicate clickable
         .style('fill','var(--color-secondary)')
-        .text(d => 'part-' + d.participant + ' ('+d.score+')')
+        .text(d => 'P-' + d.participant)
         .on('click', function(_event, d) {
             const participantId = d?.participant;
             if (participantId === undefined || participantId === null) {

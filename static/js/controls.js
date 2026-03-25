@@ -111,15 +111,15 @@ function populateSelect(selectId, values, labelPrefix, all=true, scoresByValue=n
         select.appendChild(optAll);
     }
 
-    // Si es selector de imágenes y tenemos scores, ordenar por score descendente
+    // Si es selector de imágenes: ordenar por score o por número según el toggle
     let sortedValues = [...values];
-    if (labelPrefix === 'img' && Object.keys(imageScores).length > 0) {
-        sortedValues.sort((a, b) => {
-            const scoreA = imageScores[a] || 0;
-            const scoreB = imageScores[b] || 0;
-            return scoreB - scoreA; // Descendente (mayor score primero)
-        });
-        console.log('Images sorted by score (descending):', sortedValues.map(v => `${v}:${imageScores[v]?.toFixed(1)}`));
+    if (labelPrefix === 'img') {
+        const sortByNum = document.getElementById('img-sort-toggle')?.checked ?? false;
+        if (sortByNum) {
+            sortedValues.sort((a, b) => Number(a) - Number(b));
+        } else if (Object.keys(imageScores).length > 0) {
+            sortedValues.sort((a, b) => (imageScores[b] || 0) - (imageScores[a] || 0));
+        }
     }
     // En Controls > Participant: ordenar numérico ascendente (igual que backend)
     if (labelPrefix === 'part' && selectId === 'part-select') {

@@ -785,10 +785,10 @@ function highlightHeatmapAreaEntities(areaData) {
         .attr('id', 'heatmap-area-frame-layer')
         .style('pointer-events', 'none');
 
-    const PARTICIPANT_STROKE = '#241103';
-    const PARTICIPANT_FILL = 'rgba(97, 88, 82, 0.08)';
-    const CLASS_STROKE = '#0ea5e9';
-    const CLASS_FILL = 'rgba(14, 165, 233, 0.08)';
+    const PARTICIPANT_STROKE = '#E69F00'; // Okabe-Ito orange — warm, distinct from Blues data scale
+    const PARTICIPANT_FILL = 'rgba(230, 159, 0, 0.08)';
+    const CLASS_STROKE = '#009E73'; // Okabe-Ito bluish green — no overlap with Blues data scale
+    const CLASS_FILL = 'rgba(0, 158, 115, 0.08)';
 
     const matchedRows = new Set();
     svg.selectAll('.heatmap-cell').each(function(d) {
@@ -896,7 +896,7 @@ function highlightParticipantColumnInHeatmap(participantId) {
         .attr('width', rectWidth)
         .attr('height', totalHeight)
         .attr('fill', 'none')
-        .attr('stroke', '#FFD700')  // Borde dorado
+        .attr('stroke', '#E69F00')  // Okabe-Ito orange — consistent with participant frame
         .attr('stroke-width', 3)
         .style('pointer-events', 'none')
         .style('opacity', 0.8);

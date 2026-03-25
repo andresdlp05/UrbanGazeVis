@@ -216,8 +216,8 @@ function createBrushSelection(imageWrapper, img) {
     const selectionCircle = svgContainer.append('circle')
         .attr('class', 'circle-selection-shape')
         .style('fill', 'transparent')
-        .style('stroke', '#c85f78')
-        .style('stroke-width', '0.2px')
+        .style('stroke', '#D55E00') // Okabe-Ito vermilion — visible on photo backgrounds
+        .style('stroke-width', '1.5px')
         .style('pointer-events', 'none');
 
     const resizeHandle = svgContainer.append('rect')

@@ -55,6 +55,23 @@ fill="currentColor" viewBox="0 0 24 24" >
    <div class="h-[calc(95%)] p-4" id="controls">
       <fieldset class="fieldset">
       <legend class="fieldset-legend">Image</legend>
+      <div class="w-full flex flex-row items-center my-1">
+         <div class="btn btn-ghost btn-xs pointer-events-none">Score</div>
+         <div class="flex flex-col justify-center">
+            <label class="toggle text-base-content">
+            <input type="checkbox" id="img-sort-toggle"/>
+            <svg aria-label="disabled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+            </svg>
+            <svg aria-label="enabled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <g stroke-linejoin="round" stroke-linecap="round" stroke-width="4" fill="none" stroke="currentColor">
+            <path d="M20 6 9 17l-5-5"></path>
+            </g>
+            </svg>
+            </label>
+         </div>
+         <div class="btn btn-ghost btn-xs pointer-events-none">Nº</div>
+      </div>
       <select class="select select-xs" id="img-select">
          <option disabled selected>Select an image</option>
       </select>
