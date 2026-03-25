@@ -8,6 +8,42 @@ document.querySelectorAll('.tabs input[name="tabs-nav"]').forEach(input => {
 initializeImageBlendSlider();
 initializeDirectionRingToggleControl();
 
+function resetInteractionSelections() {
+    if (typeof window.clearCircleSelection === 'function') {
+        window.clearCircleSelection();
+    }
+
+    window.selectedClass = null;
+    currentScarfSegment = null;
+    window.currentScarfSegment = null;
+
+    if (typeof removeScarfSegmentHighlight === 'function') {
+        removeScarfSegmentHighlight();
+    }
+    if (typeof clearScarfAreaSelectionHighlight === 'function') {
+        clearScarfAreaSelectionHighlight();
+    }
+    if (typeof removeParticipantColumnHighlight === 'function') {
+        removeParticipantColumnHighlight();
+    }
+    if (typeof clearHeatmapAreaFrames === 'function') {
+        clearHeatmapAreaFrames();
+    }
+
+    d3.selectAll('.rect-h-img').attr('opacity', 0);
+    d3.selectAll('.rect-heatmap').attr('opacity', 1);
+
+    const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
+    overlayCheckboxes.forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    currentOverlayTypes = [];
+
+    if (typeof updateHighlightsGlobal === 'function') {
+        updateHighlightsGlobal();
+    }
+}
+
 // Cargar scores y luego popular los selectores
 loadImageScores().then(() => {
     populateSelect("img-select", allImages, "img", all=false);
@@ -64,6 +100,7 @@ const previousParticipant = partSelect.value; // guardar selección actual
     }
 
     selectedImg = this.value;
+    resetInteractionSelections();
     if (areaAnalysisAbortController) {
         areaAnalysisAbortController.abort();
         areaAnalysisAbortController = null;
@@ -81,12 +118,12 @@ const previousParticipant = partSelect.value; // guardar selección actual
         segmentationCanvas = null;
         originalSegmentationImage = null;
         syncSegmentationLayerImage();
-        setImageBlendPercentage(0);
+        setImageBlendPercentage(50);
 
         // Crear brush cuando la imagen carga
         imgView.onload = function() {
             createBrushSelection(imageWrapper, imgView);
-            setImageBlendPercentage(currentImageBlendPercent);
+            setImageBlendPercentage(50);
             // Cargar todos los puntos de gaze y fixation para la imagen completa
             loadAllPointsForImage(selectedImage);
         };
@@ -175,14 +212,8 @@ if (datasetSelect) {
 document.getElementById("part-select").addEventListener("change", function() {
     selectedPart = this.value;
     console.log("Selected participant:", selectedPart);
-
-    if (selectedPart === 'all') {
-        removeParticipantColumnHighlight();
-    } else {
-        highlightParticipantColumnInHeatmap(selectedPart);
-    }
-
-    highlightParticipantInScarf(selectedPart);
+    resetInteractionSelections();
+    setImageBlendPercentage(50);
 
     // Actualizar overlay si hay tipos seleccionados
     // if (currentOverlayTypes && currentOverlayTypes.length > 0) {

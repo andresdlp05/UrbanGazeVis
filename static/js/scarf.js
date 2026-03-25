@@ -1,4 +1,4 @@
-// scarf.js - scarf plot visualization and related highlight utilities
+﻿// scarf.js - scarf plot visualization and related highlight utilities
 
 const scarfLog = window.debugLog || function(...args) {
     if (window.DEBUG_LOGS) {
@@ -24,7 +24,7 @@ function visualizeScarfPlot(data) {
         return;
     }
 
-    // LOG: Ver qué colores están llegando del backend
+    // LOG: Ver quÃ© colores estÃ¡n llegando del backend
     scarfLog('%c=== SCARF PLOT COLORS DEBUG ===', 'color: orange; font-weight: bold');
     const allSegments = data.scarf_data.flatMap(d => d.segments);
     const uniqueColorsByClass = {};
@@ -169,7 +169,7 @@ function visualizeScarfPlot(data) {
                 )
                 .style('stroke-dasharray', '2,2');*/
 
-    // Crear leyenda con los main_class únicos
+    // Crear leyenda con los main_class Ãºnicos
             const classes = [];
             const legendContainer = document.getElementById('scarf-plot-legend');
             legendContainer.innerHTML = "";
@@ -198,19 +198,24 @@ function visualizeScarfPlot(data) {
                 var innerhtml = "<div class='w-1/4 h-full' style='background-color:"+ classes[i].color+"'></div>" + classes[i].name;
                 btnLegend.innerHTML = innerhtml;
 
-                // MODIFICACIÓN: Agregar evento click para cross-filtering
+                // MODIFICACIÃ“N: Agregar evento click para cross-filtering
                 btnLegend.style.cursor = 'pointer';
                 btnLegend.addEventListener('click', function() {
                     const className = classes[i].name;
 
-                    // Toggle: si ya está seleccionada, deselecciona; sino, selecciona
+                    // Toggle: si ya estÃ¡ seleccionada, deselecciona; sino, selecciona
                     if (window.selectedClass === className) {
                         window.selectedClass = null;
                     } else {
                         window.selectedClass = className;
                     }
 
-                    // Llamar a función global que actualiza heatmap, scarf plot y segmentación
+                    // Si la selecciÃ³n viene desde la leyenda por clase, liberar
+                    // el lock de segmento temporal para permitir highlight por clase.
+                    currentScarfSegment = null;
+                    window.currentScarfSegment = null;
+
+                    // Llamar a funciÃ³n global que actualiza heatmap, scarf plot y segmentaciÃ³n
                     updateHighlightsGlobal();
 
                     scarfLog('Selected class from legend:', window.selectedClass);
@@ -266,7 +271,7 @@ function highlightScarfSegment(segment) {
     d3.selectAll('.scarf-segment')
         .attr('opacity', SCARF_SEGMENT_DIM_OPACITY);
 
-    // Encontrar y resaltar el segmento específico
+    // Encontrar y resaltar el segmento especÃ­fico
     d3.selectAll('.scarf-segment')
         .filter(function(d) {
             return d &&
@@ -290,7 +295,7 @@ function removeScarfSegmentHighlight() {
         .attr('stroke-width', 1);
 }
 
-// Función principal: mostrar puntos para un segmento del scarf plot
+// FunciÃ³n principal: mostrar puntos para un segmento del scarf plot
 function showPointsForScarfSegment(segment) {
     scarfLog('Showing points for scarf segment:', segment);
     window._scarfSelecting = true;
@@ -357,7 +362,7 @@ function showPointsForScarfSegment(segment) {
     // Resaltar en scarf plot
     highlightScarfSegment(segment);
 
-    // Cross-filter: resaltar clase en segmentación al hacer click en segmento temporal.
+    // Cross-filter: resaltar clase en segmentaciÃ³n al hacer click en segmento temporal.
     if (typeof updateHighlightsGlobal === 'function') {
         updateHighlightsGlobal();
     } else {
@@ -367,6 +372,11 @@ function showPointsForScarfSegment(segment) {
         if (typeof syncSegmentationLayerImage === 'function') {
             syncSegmentationLayerImage();
         }
+    }
+
+    // Requisito: en click de segmento temporal, dejar segmentación en 0%.
+    if (typeof setImageBlendPercentage === 'function') {
+        setImageBlendPercentage(100);
     }
 
     // Resaltar columna de participante en heatmap
@@ -680,11 +690,11 @@ function createBoundingBoxOverlay(boundingBox) {
     const imgRect = img.getBoundingClientRect();
     const component1Rect = component1.getBoundingClientRect();
 
-    // Calcular posición de la imagen relativa al contenedor
+    // Calcular posiciÃ³n de la imagen relativa al contenedor
     const imgLeft = (component1Rect.width - imgRect.width) / 2;
     const imgTop = (component1Rect.height - imgRect.height) / 2;
 
-    // Crear overlay con opacidad en toda la imagen (incluyendo el área del bounding box)
+    // Crear overlay con opacidad en toda la imagen (incluyendo el Ã¡rea del bounding box)
     const overlay = document.createElement('div');
     overlay.id = 'scarf-bounding-overlay';
     overlay.style.position = 'absolute';
@@ -700,7 +710,7 @@ function createBoundingBoxOverlay(boundingBox) {
 
     component1.appendChild(overlay);
 
-    // Crear rectángulo de borde negro
+    // Crear rectÃ¡ngulo de borde negro
     const border = document.createElement('div');
     border.id = 'scarf-bounding-border';
     border.style.position = 'absolute';
@@ -746,4 +756,5 @@ function showScarfError(message) {
             const container = document.getElementById('scarf-plot');
             container.innerHTML = `<p style="text-align: center; color: #999;">${message}</p>`;
 }
+
 

@@ -48,6 +48,12 @@ function createSegmentationCanvas() {
 
             const ctx = segmentationCanvas.getContext('2d');
             ctx.drawImage(originalSegmentationImage, 0, 0);
+
+            // Si ya hay una clase seleccionada, aplicar filtro apenas termina la carga
+            // para evitar un primer click "en blanco" por canvas no inicializado.
+            if (window.selectedClass) {
+                applySegmentationFilter(window.selectedClass);
+            }
         };
     }
 }
@@ -82,7 +88,15 @@ function applySegmentationFilter(selectedClass) {
     const imgView = document.getElementById('sel-img-view-seg');
     if (!imgView) return;
 
-    if (!segmentationCanvas || !originalSegmentationImage) {
+    const segmentationReady =
+        segmentationCanvas &&
+        originalSegmentationImage &&
+        originalSegmentationImage.complete &&
+        originalSegmentationImage.naturalWidth > 0 &&
+        segmentationCanvas.width > 0 &&
+        segmentationCanvas.height > 0;
+
+    if (!segmentationReady) {
         createSegmentationCanvas();
         setTimeout(() => applySegmentationFilter(selectedClass), 100);
         return;

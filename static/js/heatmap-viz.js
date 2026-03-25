@@ -1084,12 +1084,21 @@ function updateHighlightsGlobal() {
     });
 
     if (window.selectedClass != null) {
-        d3.selectAll('.scarf-segment')
-            .attr('opacity', d => 0.3);
-        d3.selectAll('.scarf-segment-' + window.selectedClass)
-            .attr('opacity', d => 1);
+        const activeScarfSegment = (typeof currentScarfSegment !== 'undefined')
+            ? currentScarfSegment
+            : window.currentScarfSegment;
+        if (activeScarfSegment && typeof highlightScarfSegment === 'function') {
+            // Si hay un segmento temporal seleccionado, preservar highlight puntual
+            // en lugar de resaltar toda la clase.
+            highlightScarfSegment(activeScarfSegment);
+        } else {
+            d3.selectAll('.scarf-segment')
+                .attr('opacity', d => 0.3);
+            d3.selectAll('.scarf-segment-' + window.selectedClass)
+                .attr('opacity', d => 1);
+        }
 
-        if (currentImageBlendPercent <= 0) {
+        if (!activeScarfSegment && currentImageBlendPercent <= 0) {
             setImageBlendPercentage(50);
         }
         syncSegmentationLayerImage();

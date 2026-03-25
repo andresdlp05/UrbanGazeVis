@@ -400,6 +400,10 @@ function createBrushSelection(imageWrapper, img) {
         btnClear.onclick = clearCircleSelection;
     }
 
+    // Exponer clear para que otros cambios de UI (imagen/participante)
+    // puedan reutilizar exactamente la misma lógica que el botón Clear.
+    window.clearCircleSelection = clearCircleSelection;
+
     const controlsContainer = document.getElementById('img-view-controls');
     if (controlsContainer && btnClear) {
         controlsContainer.append(btnClear);
