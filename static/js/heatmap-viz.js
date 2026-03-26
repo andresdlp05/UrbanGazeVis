@@ -471,6 +471,43 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     const cells = svg.append('g')
         .attr('class', 'heatmap-cells');
 
+    function handleAttentionSummaryColumnClick(imageNameRaw) {
+        const imageName = imageNameRaw !== undefined && imageNameRaw !== null ? String(imageNameRaw) : null;
+
+        heatmapLog(`=== COLUMN CLICKED ===`);
+        heatmapLog(`imageName: ${imageName}`);
+
+        // Selección cruzada por toggle simple:
+        // click en no seleccionado => selecciona, click en seleccionado => deselecciona.
+        if (
+            imageName &&
+            typeof window.getLinkedSelectedImageNames === 'function' &&
+            typeof window.setLinkedSelectionByImageNames === 'function' &&
+            typeof window.updateLinkedSelectionViews === 'function'
+        ) {
+            const selected = new Set(
+                window.getLinkedSelectedImageNames().map(name => String(name))
+            );
+
+            if (selected.has(imageName)) {
+                selected.delete(imageName);
+            } else {
+                selected.add(imageName);
+            }
+
+            if (selected.size > 0) {
+                window.setLinkedSelectionByImageNames([...selected]);
+            } else if (typeof window.clearLinkedSelectionState === 'function') {
+                window.clearLinkedSelectionState();
+            }
+            window.updateLinkedSelectionViews();
+        }
+
+        if (imageNameRaw !== undefined && imageNameRaw !== null) {
+            loadImageInControls2(imageNameRaw);
+        }
+    }
+
     // Bind data and draw rectangles
     cells.selectAll('rect')
         .data(cellData)
@@ -488,18 +525,8 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr('stroke-width', 0.5)
         .style('cursor', 'pointer')
         // Evento click para cargar la imagen en controls2
-        .on('click', function(_, d) {
-            // d.imageName es el ImageName (número real de imagen, ej: 114)
-            const imageName = d.imageName;
-
-            heatmapLog(`=== CELL CLICKED ===`);
-            heatmapLog(`d.imageName (ImageName): ${imageName}`);
-            heatmapLog(`Loading image: ${imageName}`);
-
-            if (imageName !== undefined) {
-                // Pass ONLY the imageName, not imageIndex
-                loadImageInControls2(imageName);
-            }
+        .on('click', function(event, d) {
+            handleAttentionSummaryColumnClick(d.imageName);
         })
         // Tooltip (title element)
         .append('title')
@@ -520,7 +547,12 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr('fill', d => 'transparent')
         .attr('stroke', 'red')
         .attr('stroke-width', 2)
-        .attr('opacity', 0);
+        .attr('opacity', 0)
+        .attr('pointer-events', 'all')
+        .style('cursor', 'pointer')
+        .on('click', function(event, d) {
+            handleAttentionSummaryColumnClick(d[0]);
+        });
 
     cells.selectAll('.heatmap-score')
         .data(sortedImages)
@@ -670,6 +702,10 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr('fill', 'var(--color-secondary)')
         .attr("transform", "rotate(90," + (barX + barWidth + 8) + "," + (barY + barHeight / 2) + ")")
         .text("Attention");
+
+    if (typeof window.updateLinkedSelectionViews === 'function') {
+        window.updateLinkedSelectionViews();
+    }
 }
 
 function loadHeatmap(imageId, dataType = 'gaze', mode = 'attention') {

@@ -1,10 +1,294 @@
 // charts.js — embedding projection, saliency coverage, entropy, t-SNE
 
+function normalizeImageName(imageName) {
+    return String(imageName ?? '');
+}
+
+function dedupeImageNames(imageNames) {
+    return [...new Set((imageNames || []).map(name => normalizeImageName(name)).filter(Boolean))];
+}
+
+function getTSNESelectionState() {
+    if (!Array.isArray(window.tsneSelectedPoints)) {
+        window.tsneSelectedPoints = [];
+    }
+
+    if (!(window.tsneSelectedImageSet instanceof Set)) {
+        window.tsneSelectedImageSet = new Set(
+            window.tsneSelectedPoints.map(point => normalizeImageName(point.image_name))
+        );
+    }
+
+    return {
+        selectedPoints: window.tsneSelectedPoints,
+        selectedImageSet: window.tsneSelectedImageSet
+    };
+}
+
+function setTSNESelectionState(selectedPoints) {
+    const normalizedPoints = (selectedPoints || []).map(point => ({
+        ...point,
+        image_name: normalizeImageName(point.image_name)
+    }));
+    const dedupedPoints = [];
+    const seen = new Set();
+    normalizedPoints.forEach(point => {
+        if (!point.image_name || seen.has(point.image_name)) {
+            return;
+        }
+        seen.add(point.image_name);
+        dedupedPoints.push(point);
+    });
+
+    window.tsneSelectedPoints = dedupedPoints;
+    window.tsneSelectedImageSet = new Set(
+        dedupedPoints.map(point => point.image_name)
+    );
+}
+
+function clearTSNESelectionState() {
+    window.tsneSelectedPoints = [];
+    window.tsneSelectedImageSet = new Set();
+}
+
+function getSelectionPointsForImageNames(imageNames) {
+    const normalizedNames = dedupeImageNames(imageNames);
+    if (normalizedNames.length === 0) {
+        return [];
+    }
+
+    const saliencyRows = window.currentSaliencyCoverageData?.data || [];
+    const projectionRows = window.currentEmbeddingProjectionData?.data || [];
+    const saliencyByImage = new Map(
+        saliencyRows.map(row => [normalizeImageName(row.image_name), row])
+    );
+    const projectionByImage = new Map(
+        projectionRows.map(row => [normalizeImageName(row.image_name), row])
+    );
+
+    return normalizedNames.map(imageName => {
+        const saliencyRow = saliencyByImage.get(imageName);
+        if (saliencyRow) {
+            return {
+                ...saliencyRow,
+                image_name: imageName
+            };
+        }
+
+        const projectionRow = projectionByImage.get(imageName);
+        if (projectionRow) {
+            return {
+                ...projectionRow,
+                image_name: imageName
+            };
+        }
+
+        return { image_name: imageName, score: null };
+    });
+}
+
+function setTSNESelectionByImageNames(imageNames) {
+    const selectedPoints = getSelectionPointsForImageNames(imageNames);
+    if (selectedPoints.length > 0) {
+        setTSNESelectionState(selectedPoints);
+    } else {
+        clearTSNESelectionState();
+    }
+}
+
+function registerSaliencyScatterDefaults(pointsSelection) {
+    pointsSelection
+        .attr('data-image-name', d => normalizeImageName(d.image_name))
+        .attr('data-base-fill', function() {
+            return d3.select(this).attr('fill') ?? '';
+        })
+        .attr('data-base-stroke', function() {
+            return d3.select(this).attr('stroke') ?? '';
+        })
+        .attr('data-base-r', function() {
+            return d3.select(this).attr('r') ?? '4';
+        })
+        .attr('data-base-opacity', function() {
+            const opacity = d3.select(this).attr('opacity');
+            return opacity ?? '1';
+        });
+}
+
+function restoreSaliencyScatterPointStyle(pointSelection) {
+    pointSelection
+        .attr('fill', function() {
+            return this.getAttribute('data-base-fill') || '#6daed5';
+        })
+        .attr('stroke', function() {
+            return this.getAttribute('data-base-stroke') || 'black';
+        })
+        .attr('r', function() {
+            return this.getAttribute('data-base-r') || 4;
+        })
+        .attr('opacity', function() {
+            return this.getAttribute('data-base-opacity') || 1;
+        });
+}
+
+function registerProjectionPointDefaults(pointsSelection) {
+    pointsSelection
+        .attr('data-image-name', d => normalizeImageName(d.image_name))
+        .attr('data-base-fill', function() {
+            return d3.select(this).attr('fill') ?? '';
+        })
+        .attr('data-base-stroke', function() {
+            return d3.select(this).attr('stroke') ?? '';
+        })
+        .attr('data-base-r', function() {
+            return d3.select(this).attr('r') ?? '5';
+        });
+}
+
+function restoreProjectionPointStyle(pointSelection) {
+    pointSelection
+        .attr('fill', function() {
+            return this.getAttribute('data-base-fill') || '#6daed5';
+        })
+        .attr('stroke', function() {
+            return this.getAttribute('data-base-stroke') || 'black';
+        })
+        .attr('r', function() {
+            return this.getAttribute('data-base-r') || 5;
+        })
+        .attr('opacity', 1);
+}
+
+function applyTSNESelectionToProjectionPoints() {
+    const { selectedImageSet } = getTSNESelectionState();
+
+    d3.selectAll('.projection-point').each(function(d) {
+        const imageName = normalizeImageName(d?.image_name ?? this.getAttribute('data-image-name'));
+        const point = d3.select(this);
+
+        if (selectedImageSet.size > 0 && selectedImageSet.has(imageName)) {
+            point
+                .attr('fill', 'red')
+                .attr('stroke', 'red')
+                .attr('r', 7)
+                .attr('opacity', 1);
+        } else {
+            restoreProjectionPointStyle(point);
+        }
+    });
+}
+
+function applyTSNESelectionToScatterPoints() {
+    const { selectedImageSet } = getTSNESelectionState();
+
+    d3.selectAll('.scatter-saliency-point').each(function(d) {
+        const imageName = normalizeImageName(d?.image_name ?? this.getAttribute('data-image-name'));
+        const point = d3.select(this);
+
+        if (selectedImageSet.size > 0 && selectedImageSet.has(imageName)) {
+            point
+                .attr('fill', 'red')
+                .attr('stroke', 'red')
+                .attr('r', 6)
+                .attr('opacity', 1);
+        } else {
+            restoreSaliencyScatterPointStyle(point);
+        }
+    });
+}
+
+function applyTSNESelectionToLinkedViews() {
+    const { selectedPoints, selectedImageSet } = getTSNESelectionState();
+    const hasSelection = selectedImageSet.size > 0;
+
+    d3.selectAll('.rect-h-img').attr('opacity', 0);
+    d3.selectAll('.rect-heatmap').attr('opacity', 1);
+
+    if (hasSelection) {
+        selectedImageSet.forEach(imageName => {
+            d3.select('#rect-h-img-' + imageName).attr('opacity', 0.75);
+            d3.selectAll('.rect-heatmap-' + imageName).attr('opacity', 1);
+        });
+    }
+
+    applyTSNESelectionToScatterPoints();
+
+    const controls2SelectedImages = document.getElementById('controls2-selected-images');
+    if (!controls2SelectedImages) {
+        return;
+    }
+
+    if (!hasSelection) {
+        controls2SelectedImages.innerHTML = '';
+        return;
+    }
+
+    if (typeof window.displayTSNESelectedImages === 'function') {
+        window.displayTSNESelectedImages([...selectedPoints]);
+    }
+}
+
+function updateLinkedSelectionViews() {
+    const selectedImageNames = [...getTSNESelectionState().selectedImageSet];
+    if (selectedImageNames.length > 0) {
+        setTSNESelectionState(getSelectionPointsForImageNames(selectedImageNames));
+    }
+    applyTSNESelectionToLinkedViews();
+    applyTSNESelectionToProjectionPoints();
+}
+
+function createSaliencySelectionBrush(svg, width, height, scatterPoints) {
+    const brush = d3.brush()
+        .extent([[0, 0], [width, height]])
+        .on('end', function(event) {
+            if (!event.selection) {
+                clearTSNESelectionState();
+                updateLinkedSelectionViews();
+                return;
+            }
+
+            const [[x0, y0], [x1, y1]] = event.selection;
+            const selectedPoints = [];
+            scatterPoints.each(function(d) {
+                const cx = Number(this.getAttribute('cx'));
+                const cy = Number(this.getAttribute('cy'));
+                if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) {
+                    selectedPoints.push(d);
+                }
+            });
+
+            if (selectedPoints.length > 0) {
+                setTSNESelectionState(selectedPoints);
+            } else {
+                clearTSNESelectionState();
+            }
+
+            updateLinkedSelectionViews();
+        });
+
+    const brushLayer = svg.append('g')
+        .attr('class', 'saliency-selection-brush')
+        .call(brush);
+
+    // Keep brush behind points so hover tooltips remain accessible.
+    brushLayer.lower();
+}
+
+window.setLinkedSelectionByImageNames = setTSNESelectionByImageNames;
+window.clearLinkedSelectionState = clearTSNESelectionState;
+window.getLinkedSelectedImageNames = function() {
+    return [...getTSNESelectionState().selectedImageSet];
+};
+window.updateLinkedSelectionViews = updateLinkedSelectionViews;
+window.applyTSNESelectionToProjectionPoints = applyTSNESelectionToProjectionPoints;
+
 // Función para cargar datos de proyección de embeddings (t-SNE)
 function loadEmbeddingProjectionData(participantId) {
     // Clear any previous selection
     if (window.clearTSNESelection) {
         window.clearTSNESelection();
+    } else {
+        clearTSNESelectionState();
+        updateLinkedSelectionViews();
     }
 
     const baseUrl = window.location.origin;
@@ -160,12 +444,12 @@ function visualizeSaliencyCoverageScatterPlot(data) {
         );
 
     // Draw scatter points
-    svg.selectAll('circle')
+    const scatterPoints = svg.selectAll('circle')
         .data(scatterData)
         .enter()
         .append('circle')
         .attr('class', 'scatter-saliency-point')
-        .attr('id', d => 'scatter-saliency-point-'+d.image_name)
+        .attr('id', d => 'scatter-saliency-point-' + normalizeImageName(d.image_name))
         .attr('cx', (d, i) => xScale(i))
         .attr('cy', d => yScale(d.saliency_coverage))
         .attr('r', 4)
@@ -174,10 +458,6 @@ function visualizeSaliencyCoverageScatterPlot(data) {
         .attr('stroke-width', 1)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 6)
-                .attr('stroke-width', 2);
-
             // Show tooltip with image number, score, and saliency coverage
             const tooltip = d3.select(container).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -205,11 +485,11 @@ function visualizeSaliencyCoverageScatterPlot(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 4)
-                .attr('stroke-width', 1);
             d3.select(container).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToScatterPoints();
         });
+
+    registerSaliencyScatterDefaults(scatterPoints);
 
     // X Axis
     svg.append('g')
@@ -223,10 +503,10 @@ function visualizeSaliencyCoverageScatterPlot(data) {
         }))
         .style('font-size', '12px')
         .selectAll('text')
-        .style('text-anchor', 'end')
-        .attr('dx', '-0.5em')
-        .attr('dy', '0.5em')
-        .attr('transform', 'rotate(-45)');
+        .style('text-anchor', 'middle')
+        .attr('dx', '0')
+        .attr('dy', '0.71em')
+        .attr('transform', 'rotate(0)');
 
     // Y Axis
     svg.append('g')
@@ -240,7 +520,7 @@ function visualizeSaliencyCoverageScatterPlot(data) {
         .attr('text-anchor', 'middle')
         .attr('font-size', '14px')
         .style('fill', 'var(--color-secondary)')
-        .text('Images (ordered by score)');
+        .text('Images');
 
     // Y Axis Label
     svg.append('text')
@@ -250,7 +530,10 @@ function visualizeSaliencyCoverageScatterPlot(data) {
         .attr('text-anchor', 'middle')
         .attr('font-size', '14px')
         .style('fill', 'var(--color-secondary)')
-        .text('Saliency Coverage (%)');
+        .text('Saliency Coverage');
+
+    createSaliencySelectionBrush(svg, width, height, scatterPoints);
+    applyTSNESelectionToScatterPoints();
 }
 
 // Función para visualizar scatter plot por Score (mostrando todas las 50 imágenes)
@@ -324,12 +607,12 @@ function visualizeSaliencyCoverageByScore(data) {
     const jitterGenerator = () => (Math.random() - 0.5) * 0.3;
 
     // Draw scatter points para cada imagen individual
-    svg.selectAll('circle')
+    const scatterPoints = svg.selectAll('circle')
         .data(scatterData)
         .enter()
         .append('circle')
         .attr('class', 'scatter-saliency-point')
-        .attr('id', d => 'scatter-saliency-point-'+d.image_name)
+        .attr('id', d => 'scatter-saliency-point-' + normalizeImageName(d.image_name))
         .attr('cx', d => xScale(d.score) + jitterGenerator())
         .attr('cy', d => yScale(d.saliency_coverage))
         .attr('r', 4)
@@ -339,11 +622,6 @@ function visualizeSaliencyCoverageByScore(data) {
         .attr('opacity', 0.7)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 6)
-                .attr('stroke-width', 2)
-                .attr('opacity', 1);
-
             // Show tooltip con info de cada imagen
             const tooltip = d3.select(container).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -373,12 +651,11 @@ function visualizeSaliencyCoverageByScore(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 4)
-                .attr('stroke-width', 1)
-                .attr('opacity', 0.7);
             d3.select(container).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToScatterPoints();
         });
+
+    registerSaliencyScatterDefaults(scatterPoints);
 
     // X Axis
     svg.append('g')
@@ -410,7 +687,10 @@ function visualizeSaliencyCoverageByScore(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Saliency Coverage (%)');
+        .text('Saliency Coverage');
+
+    createSaliencySelectionBrush(svg, width, height, scatterPoints);
+    applyTSNESelectionToScatterPoints();
 }
 
 // Función para visualizar saliency coverage por tiempo (ordenado por imagen)
@@ -489,12 +769,12 @@ function visualizeSaliencyCoverageByTime(data) {
         );
 
     // Draw scatter points
-    svg.selectAll('circle')
+    const scatterPoints = svg.selectAll('circle')
         .data(dataWithTime)
         .enter()
         .append('circle')
         .attr('class', 'scatter-saliency-point')
-        .attr('id', d => 'scatter-saliency-point-'+d.image_name)
+        .attr('id', d => 'scatter-saliency-point-' + normalizeImageName(d.image_name))
         .attr('cx', d => xScale(d.time_minutes))
         .attr('cy', d => yScale(d.saliency_coverage))
         .attr('r', 4)
@@ -504,11 +784,6 @@ function visualizeSaliencyCoverageByTime(data) {
         .attr('opacity', 0.7)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 6)
-                .attr('stroke-width', 2)
-                .attr('opacity', 1);
-
             // Show tooltip
             const tooltip = d3.select(container).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -539,12 +814,11 @@ function visualizeSaliencyCoverageByTime(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 4)
-                .attr('stroke-width', 1)
-                .attr('opacity', 0.7);
             d3.select(container).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToScatterPoints();
         });
+
+    registerSaliencyScatterDefaults(scatterPoints);
 
     // X Axis
     svg.append('g')
@@ -565,7 +839,7 @@ function visualizeSaliencyCoverageByTime(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Time (minutes)');
+        .text('Time');
 
     // Y Axis Label
     svg.append('text')
@@ -576,7 +850,10 @@ function visualizeSaliencyCoverageByTime(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Saliency Coverage (%)');
+        .text('Saliency Coverage');
+
+    createSaliencySelectionBrush(svg, width, height, scatterPoints);
+    applyTSNESelectionToScatterPoints();
 }
 
 // Helper function to render the correct visualization based on metric and view type
@@ -666,10 +943,12 @@ function visualizeEntropyScatterPlot(data) {
         );
 
     // Draw scatter points
-    svg.selectAll('circle')
+    const scatterPoints = svg.selectAll('circle')
         .data(scatterData)
         .enter()
         .append('circle')
+        .attr('class', 'scatter-saliency-point')
+        .attr('id', d => 'scatter-saliency-point-' + normalizeImageName(d.image_name))
         .attr('cx', (d, i) => xScale(i))
         .attr('cy', d => yScale(d.stationary_entropy))
         .attr('r', 4)
@@ -678,10 +957,6 @@ function visualizeEntropyScatterPlot(data) {
         .attr('stroke-width', 1)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 6)
-                .attr('stroke-width', 2);
-
             // Show tooltip with image number, score, and entropy
             const tooltip = d3.select(container).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -709,11 +984,11 @@ function visualizeEntropyScatterPlot(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 4)
-                .attr('stroke-width', 1);
             d3.select(container).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToScatterPoints();
         });
+
+    registerSaliencyScatterDefaults(scatterPoints);
 
     // X Axis
     svg.append('g')
@@ -727,10 +1002,10 @@ function visualizeEntropyScatterPlot(data) {
         }))
         .style('font-size', '12px')
         .selectAll('text')
-        .style('text-anchor', 'end')
-        .attr('dx', '-0.5em')
-        .attr('dy', '0.5em')
-        .attr('transform', 'rotate(-45)');
+        .style('text-anchor', 'middle')
+        .attr('dx', '0')
+        .attr('dy', '0.71em')
+        .attr('transform', 'rotate(0)');
 
     // Y Axis
     svg.append('g')
@@ -745,7 +1020,7 @@ function visualizeEntropyScatterPlot(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Images (ordered by score)');
+        .text('Images');
 
     // Y Axis Label
     svg.append('text')
@@ -756,7 +1031,10 @@ function visualizeEntropyScatterPlot(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Stationary Entropy (bits)');
+        .text('Stationary Entropy');
+
+    createSaliencySelectionBrush(svg, width, height, scatterPoints);
+    applyTSNESelectionToScatterPoints();
 }
 
 // Función para visualizar scatter plot de entropía por Score (mostrando todas las 50 imágenes)
@@ -830,10 +1108,12 @@ function visualizeEntropyByScore(data) {
     const jitterGenerator = () => (Math.random() - 0.5) * 0.3;
 
     // Draw scatter points para cada imagen individual
-    svg.selectAll('circle')
+    const scatterPoints = svg.selectAll('circle')
         .data(scatterData)
         .enter()
         .append('circle')
+        .attr('class', 'scatter-saliency-point')
+        .attr('id', d => 'scatter-saliency-point-' + normalizeImageName(d.image_name))
         .attr('cx', d => xScale(d.score) + jitterGenerator())
         .attr('cy', d => yScale(d.stationary_entropy))
         .attr('r', 4)
@@ -843,11 +1123,6 @@ function visualizeEntropyByScore(data) {
         .attr('opacity', 0.7)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 6)
-                .attr('stroke-width', 2)
-                .attr('opacity', 1);
-
             // Show tooltip con info de cada imagen
             const tooltip = d3.select(container).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -877,12 +1152,11 @@ function visualizeEntropyByScore(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 4)
-                .attr('stroke-width', 1)
-                .attr('opacity', 0.7);
             d3.select(container).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToScatterPoints();
         });
+
+    registerSaliencyScatterDefaults(scatterPoints);
 
     // X Axis
     svg.append('g')
@@ -914,7 +1188,10 @@ function visualizeEntropyByScore(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Stationary Entropy (bits)');
+        .text('Stationary Entropy');
+
+    createSaliencySelectionBrush(svg, width, height, scatterPoints);
+    applyTSNESelectionToScatterPoints();
 }
 
 // Función para visualizar entropy por tiempo (ordenado por imagen)
@@ -988,10 +1265,12 @@ function visualizeEntropyByTime(data) {
         );
 
     // Draw scatter points
-    svg.selectAll('circle')
+    const scatterPoints = svg.selectAll('circle')
         .data(dataWithTime)
         .enter()
         .append('circle')
+        .attr('class', 'scatter-saliency-point')
+        .attr('id', d => 'scatter-saliency-point-' + normalizeImageName(d.image_name))
         .attr('cx', d => xScale(d.time_minutes))
         .attr('cy', d => yScale(d.stationary_entropy))
         .attr('r', 4)
@@ -1001,11 +1280,6 @@ function visualizeEntropyByTime(data) {
         .attr('opacity', 0.7)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 6)
-                .attr('stroke-width', 2)
-                .attr('opacity', 1);
-
             // Show tooltip
             const tooltip = d3.select(container).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -1036,12 +1310,11 @@ function visualizeEntropyByTime(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 4)
-                .attr('stroke-width', 1)
-                .attr('opacity', 0.7);
             d3.select(container).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToScatterPoints();
         });
+
+    registerSaliencyScatterDefaults(scatterPoints);
 
     // X Axis
     svg.append('g')
@@ -1062,7 +1335,7 @@ function visualizeEntropyByTime(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Time (minutes)');
+        .text('Time');
 
     // Y Axis Label
     svg.append('text')
@@ -1073,7 +1346,10 @@ function visualizeEntropyByTime(data) {
         .attr('font-size', '14px')
         .attr('font-weight', 'bold')
         .style('fill', 'var(--color-secondary)')
-        .text('Stationary Entropy (bits)');
+        .text('Stationary Entropy');
+
+    createSaliencySelectionBrush(svg, width, height, scatterPoints);
+    applyTSNESelectionToScatterPoints();
 }
 
 // Función para visualizar proyección t-SNE de embeddings segmentarios
@@ -1176,6 +1452,8 @@ function visualizeTSNEProjection(data) {
         .data(projectionData)
         .enter()
         .append('circle')
+        .attr('class', 'projection-point')
+        .attr('id', d => 'projection-point-' + normalizeImageName(d.image_name))
         .attr('cx', d => xScale(d.tsne_x))
         .attr('cy', d => yScale(d.tsne_y))
         .attr('r', 5)
@@ -1184,10 +1462,6 @@ function visualizeTSNEProjection(data) {
         .attr('stroke-width', 1)
         .style('cursor', 'pointer')
         .on('mouseover', function(event, d) {
-            d3.select(this)
-                .attr('r', 7)
-                .attr('stroke-width', 2.5);
-
             // Show tooltip with image number and score
             const tooltip = d3.select(plotContainer).append('div')
                 .attr('class', 'scatter-tooltip')
@@ -1215,28 +1489,20 @@ function visualizeTSNEProjection(data) {
                 .style('top', (event.pageY - 10) + 'px');
         })
         .on('mouseout', function() {
-            d3.select(this)
-                .attr('r', 5)
-                .attr('stroke-width', 1.5);
             d3.select(plotContainer).selectAll('.scatter-tooltip').remove();
+            applyTSNESelectionToProjectionPoints();
         });
+
+    registerProjectionPointDefaults(circles);
+    applyTSNESelectionToProjectionPoints();
 
     // Add brush functionality
     const brush = d3.brush()
         .extent([[0, 0], [width, height]])
         .on('end', function(event) {
             if (!event.selection) {
-                // Clear selection
-                circles.style('opacity', 1);
-                d3.selectAll('.rect-h-img').attr('opacity', 0);
-                d3.selectAll('.rect-heatmap').attr('opacity', 1);
-                d3.selectAll('.scatter-saliency-point').attr('fill', '#6daed5');
-                d3.selectAll('.scatter-saliency-point').attr('stroke', 'black');
-                d3.selectAll('.scatter-saliency-point').attr('r', 4);
-                const controls2SelectedImages = document.getElementById('controls2-selected-images');
-                if (controls2SelectedImages) {
-                    controls2SelectedImages.innerHTML = '';
-                }
+                clearTSNESelectionState();
+                updateLinkedSelectionViews();
                 return;
             }
 
@@ -1250,45 +1516,21 @@ function visualizeTSNEProjection(data) {
             });
 
             if (selectedPoints.length > 0) {
-                // Update circle opacity
-                circles.style('opacity', d => {
-                    return selectedPoints.some(sp => sp.image_name === d.image_name) ? 1 : 0.5;
-                });
-
-                d3.selectAll('.rect-h-img').attr('opacity', 0);
-                d3.selectAll('.rect-heatmap').attr('opacity', 0.15);
-                d3.selectAll('.scatter-saliency-point').attr('stroke', 'black');
-                d3.selectAll('.scatter-saliency-point').attr('fill', '#6daed5');
-                d3.selectAll('.scatter-saliency-point').attr('r', 4);
-                for (let x = 0; x<selectedPoints.length; x++){
-                    d3.select('#rect-h-img-'+selectedPoints[x].image_name).attr('opacity', 0.75);
-                    d3.selectAll('.rect-heatmap-'+selectedPoints[x].image_name).attr('opacity', 1);
-                    d3.select('#scatter-saliency-point-'+selectedPoints[x].image_name).attr('stroke', 'red');
-                    d3.select('#scatter-saliency-point-'+selectedPoints[x].image_name).attr('fill', 'red');
-                    d3.select('#scatter-saliency-point-'+selectedPoints[x].image_name).attr('r', 6);
-
-                }
-
-                // Display in controls2
-                displaySelectedImagesInControls(selectedPoints);
+                setTSNESelectionState(selectedPoints);
             } else {
-                circles.style('opacity', 1);
-                d3.selectAll('.rect-h-img').attr('opacity', 0);
-                d3.selectAll('.rect-heatmap').attr('opacity', 1);
-                d3.selectAll('.scatter-saliency-point').attr('stroke', 'black');
-                d3.selectAll('.scatter-saliency-point').attr('fill', '#6daed5');
-                d3.selectAll('.scatter-saliency-point').attr('r', 4);
-                const controls2SelectedImages = document.getElementById('controls2-selected-images');
-                if (controls2SelectedImages) {
-                    controls2SelectedImages.innerHTML = '';
-                }
+                clearTSNESelectionState();
             }
+
+            updateLinkedSelectionViews();
         });
 
     // Add brush to SVG
-    svg.append('g')
+    const projectionBrushLayer = svg.append('g')
         .attr('class', 'brush')
         .call(brush);
+
+    // Keep brush behind points so hover tooltips remain accessible.
+    projectionBrushLayer.lower();
 
     document.getElementById("image-projection-legend").innerHTML = "";
     // Assume heatmapData is available and contains objects with rawValue
@@ -1389,14 +1631,20 @@ function visualizeTSNEProjection(data) {
     // Helper function to display selected images in both containers
     function displaySelectedImagesInControls(selectedPoints) {
         const controls2SelectedImages = document.getElementById('controls2-selected-images');
-        selectedPoints.sort((a, b) => b.score - a.score);
+        const orderedPoints = [...selectedPoints].sort((a, b) => {
+            const scoreA = Number.isFinite(Number(a?.score)) ? Number(a.score) : -Infinity;
+            const scoreB = Number.isFinite(Number(b?.score)) ? Number(b.score) : -Infinity;
+            return scoreB - scoreA;
+        });
         if (!controls2SelectedImages) {
             return;
         }
 
         controls2SelectedImages.innerHTML = '';
 
-        selectedPoints.forEach(point => {
+        orderedPoints.forEach(point => {
+            const scoreValue = Number(point?.score);
+            const scoreLabel = Number.isFinite(scoreValue) ? scoreValue.toFixed(1) : 'N/A';
             const img = document.createElement('div');
             img.classList.add("h-[calc(49%)]")
             img.classList.add("w-full")
@@ -1404,7 +1652,7 @@ function visualizeTSNEProjection(data) {
 
             img.innerHTML = `
                 <div class="btn btn-xs btn-ghost pointer-events-none w-full h-[calc(10%)]">
-                    id: ${point.image_name} | score: ${point.score}
+                    id: ${point.image_name} | score: ${scoreLabel}
                 </div>
                 <img src='/static/images/images/images/${point.image_name}.jpg' class="h-[calc(90%)] w-full object-scale-down">
             `
@@ -1419,14 +1667,11 @@ function visualizeTSNEProjection(data) {
 
     // Store reference to clear on heatmap selection
     window.clearTSNESelection = function() {
-        const controls2SelectedImages = document.getElementById('controls2-selected-images');
-        if (controls2SelectedImages) {
-            controls2SelectedImages.innerHTML = '';
-        }
-
-        circles.style('opacity', 1);
+        clearTSNESelectionState();
+        updateLinkedSelectionViews();
         svg.selectAll('.brush').call(brush.move, null);
     };
 
     window.displayTSNESelectedImages = displaySelectedImagesInControls;
+    updateLinkedSelectionViews();
 }
