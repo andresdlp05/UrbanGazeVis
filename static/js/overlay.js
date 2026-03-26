@@ -576,8 +576,11 @@ function visualizeGazePointsOverlay() {
         overlayLog(`Using scarf segment color for gaze points: ${selectedSegmentPointColor}`);
     }
 
+    const hasScarfSegmentSelection = Boolean(currentScarfSegment);
     const ctx = getOrCreatePointsCanvas(overlayContainer, imgRect.width, imgRect.height);
     ctx.fillStyle = selectedSegmentPointColor;
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
     const radius = 2;
 
     for (let i = 0; i < pointsToRender.length; i++) {
@@ -594,6 +597,9 @@ function visualizeGazePointsOverlay() {
         ctx.beginPath();
         ctx.arc(scaledX, scaledY, radius, 0, Math.PI * 2);
         ctx.fill();
+        if (hasScarfSegmentSelection) {
+            ctx.stroke();
+        }
     }
 
     overlayLog(`✓ Rendered ${pointsToRender.length} gaze points on canvas`);
