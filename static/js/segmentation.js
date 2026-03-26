@@ -175,13 +175,37 @@ function getSegmentationLayerImage() {
     return document.getElementById('sel-img-view-seg');
 }
 
+function syncImageBlendDividerPosition() {
+    const imgView = document.getElementById('sel-img-view');
+    const imageWrapper = document.getElementById('component-1');
+    const divider = document.getElementById('img-compare-divider');
+
+    if (!divider || !imgView || !imageWrapper) {
+        return;
+    }
+
+    const safePercent = Math.max(0, Math.min(100, Number(currentImageBlendPercent) || 0));
+    const imgRect = imgView.getBoundingClientRect();
+    const wrapperRect = imageWrapper.getBoundingClientRect();
+
+    if (safePercent <= 0 || safePercent >= 100 || imgRect.width === 0 || imgRect.height === 0) {
+        divider.style.display = 'none';
+        return;
+    }
+
+    const splitRatio = (100 - safePercent) / 100; // Segmentación visible desde la derecha
+    const splitX = (imgRect.left - wrapperRect.left) + (imgRect.width * splitRatio);
+    divider.style.display = 'block';
+    divider.style.left = `${splitX}px`;
+    divider.style.top = `${imgRect.top - wrapperRect.top}px`;
+    divider.style.height = `${imgRect.height}px`;
+}
+
 function setImageBlendPercentage(percent) {
     const imgView = document.getElementById('sel-img-view');
     const segView = getSegmentationLayerImage();
-    const imageWrapper = document.getElementById('component-1');
     const slider = document.getElementById('img-compare-slider');
     const valueLabel = document.getElementById('img-compare-value');
-    const divider = document.getElementById('img-compare-divider');
 
     const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
     currentImageBlendPercent = safePercent;
@@ -222,21 +246,7 @@ function setImageBlendPercentage(percent) {
         currentImageMode = 'blend';
     }
 
-    if (divider && imgView && imageWrapper) {
-        const imgRect = imgView.getBoundingClientRect();
-        const wrapperRect = imageWrapper.getBoundingClientRect();
-
-        if (safePercent <= 0 || safePercent >= 100 || imgRect.width === 0 || imgRect.height === 0) {
-            divider.style.display = 'none';
-        } else {
-            const splitRatio = (100 - safePercent) / 100; // Segmentación visible desde la derecha
-            const splitX = (imgRect.left - wrapperRect.left) + (imgRect.width * splitRatio);
-            divider.style.display = 'block';
-            divider.style.left = `${splitX}px`;
-            divider.style.top = `${imgRect.top - wrapperRect.top}px`;
-            divider.style.height = `${imgRect.height}px`;
-        }
-    }
+    syncImageBlendDividerPosition();
 }
 
 function syncSegmentationLayerImage() {

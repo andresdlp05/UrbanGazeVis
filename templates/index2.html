@@ -55,8 +55,8 @@ fill="currentColor" viewBox="0 0 24 24" >
    <div class="h-[calc(95%)] p-4" id="controls">
       <fieldset class="fieldset">
       <legend class="fieldset-legend">Image</legend>
-      <div class="w-full flex flex-row items-center my-1">
-         <div class="btn btn-ghost btn-xs pointer-events-none">Score</div>
+      <div class="w-full flex flex-row items-center justify-between gap-3 my-1 px-1">
+         <span class="text-[12px] text-black font-medium whitespace-nowrap">Sorted by: Score</span>
          <div class="flex flex-col justify-center">
             <label class="toggle text-base-content">
             <input type="checkbox" id="img-sort-toggle"/>
@@ -70,7 +70,7 @@ fill="currentColor" viewBox="0 0 24 24" >
             </svg>
             </label>
          </div>
-         <div class="btn btn-ghost btn-xs pointer-events-none">Nº</div>
+         <span class="text-[12px] text-black font-medium whitespace-nowrap">ID</span>
       </div>
       <select class="select select-xs" id="img-select">
          <option disabled selected>Select an image</option>

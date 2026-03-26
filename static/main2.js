@@ -9,6 +9,8 @@ var currentImageMode = 'original'; // 'original' o 'segmentation'
 var currentImageBlendPercent = 0; // 0 = original, 100 = segmentation
 var currentImageOriginalPath = null;
 var currentImageSegmentationPath = null;
+var imagePanOffsetX = 0;
+var imagePanOffsetY = 0;
 var globalData = data;
 var attentionHeatmapData = null;
 // Canvas para procesar segmentación
@@ -85,6 +87,9 @@ class RadialGlyph {
             ring1OuterRadius: 55,
             ring2InnerRadius: 80,
             ring2OuterRadius: 100,
+            ring2LabelOffset: 10,
+            ring2LabelHalfExtent: 12,
+            ring2LabelFontSize: 12,
             ...options
         };
 
@@ -112,8 +117,10 @@ class RadialGlyph {
             .append("svg")
             .attr("width", this.config.width)
             .attr("height", this.config.height)
+            .attr("overflow", "visible")
             .style("background", "transparent")
-            .style("pointer-events", "none");
+            .style("pointer-events", "none")
+            .style("overflow", "visible");
 
         this.centerGroup = this.svg.append("g")
             .attr("class", "center-group")
@@ -750,17 +757,25 @@ class RadialGlyph {
                 .style("word-wrap", "break-word");
         }
 
-        // Prepare data for stacked visualization (radially stacked by time, not concentric by participant)
-        // Architecture: Each time segment gets its own radial band of fixed height (50px)
-        // Within each band, participants are distributed proportionally (0-100%)
+        // Prepare data for stacked visualization.
+        // Ring2 is constrained to the configured radial band: [ring2InnerRadius, ring2OuterRadius].
         const stackedData = [];
-        const FIXED_BAR_HEIGHT = 50;  // Fixed height for each time block in pixels
+        const availableRingThickness = Math.max(0, this.config.ring2OuterRadius - this.config.ring2InnerRadius);
+        const maxParticipantsInAnySecond = d3.max(d3.range(15).map((timeIdx) => {
+            const participantCounts = perParticipantData[timeIdx] || {};
+            let count = 0;
+            participants.forEach((participantId) => {
+                if ((participantCounts[participantId] || 0) > 0) {
+                    count++;
+                }
+            });
+            return count;
+        })) || 0;
+        const segmentHeight = maxParticipantsInAnySecond > 0 ? (availableRingThickness / maxParticipantsInAnySecond) : 0;
+        let maxOuterRadius = this.config.ring2InnerRadius;
 
-        // Process ALL 15 time segments (0-14), even those without data
-        // This ensures blocks align with time labels
-        const FIXED_SEGMENT_HEIGHT = 10;  // Fixed height for each participant segment
-        var maxOuterRadius = 0;
-        d3.range(15).forEach((timeIdx, blockIndex) => {
+        // Process all 15 time segments (0-14), even those without data.
+        d3.range(15).forEach((timeIdx) => {
             const participantCounts = perParticipantData[timeIdx] || {};
 
             // Get list of participants that have data in this time segment
@@ -773,15 +788,18 @@ class RadialGlyph {
             });
 
             // Stack participants that are present in this time
-            // Each gets FIXED height regardless of number of participants
             const barInnerRadius = this.config.ring2InnerRadius;
             let currentRadius = barInnerRadius;
 
-            participantsInThisTime.forEach((participantId, idx) => {
+            participantsInThisTime.forEach((participantId) => {
                 const count = participantCounts[participantId] || 0;
 
                 const innerRadius = currentRadius;
-                const outerRadius = currentRadius + FIXED_SEGMENT_HEIGHT;
+                const outerRadius = Math.min(this.config.ring2OuterRadius, currentRadius + segmentHeight);
+
+                if (outerRadius <= innerRadius) {
+                    return;
+                }
 
                 stackedData.push({
                     timeIdx: timeIdx,
@@ -793,11 +811,21 @@ class RadialGlyph {
 
                 // Next participant starts where this one ends
                 currentRadius = outerRadius;
-                if (outerRadius > maxOuterRadius){
-                    maxOuterRadius = outerRadius;
-                }
+                maxOuterRadius = Math.max(maxOuterRadius, outerRadius);
             });
         });
+
+        const dividerOuterRadius = Math.min(
+            this.config.ring2OuterRadius,
+            Math.max(maxOuterRadius, this.config.ring2InnerRadius)
+        );
+        const desiredLabelRadius = dividerOuterRadius + this.config.ring2LabelOffset;
+        const glyphHalfSize = Math.min(this.config.width, this.config.height) / 2;
+        const maxLabelRadiusByCanvas = Math.max(
+            dividerOuterRadius,
+            glyphHalfSize - this.config.ring2LabelHalfExtent
+        );
+        const timeLabelRadius = Math.min(desiredLabelRadius, maxLabelRadiusByCanvas);
 
         const arc = d3.arc()
             .innerRadius(d => d.innerRadius)
@@ -900,11 +928,11 @@ class RadialGlyph {
             })
             .attr("x2", d => {
                 const angle = angleScale(d);
-                return Math.cos(angle - Math.PI/2) * maxOuterRadius*1.01;
+                return Math.cos(angle - Math.PI/2) * dividerOuterRadius;
             })
             .attr("y2", d => {
                 const angle = angleScale(d);
-                return Math.sin(angle - Math.PI/2) * maxOuterRadius*1.01;
+                return Math.sin(angle - Math.PI/2) * dividerOuterRadius;
             })
             .attr("stroke",  d=>"#555")
             .attr("stroke-width",1.3)
@@ -912,24 +940,23 @@ class RadialGlyph {
 
         this.ring2Group.selectAll(".time-segment-divider-text")
             .data(d3.range(15))  // 16 divisores: inicio de cada bloque (0-14) + final (15)
-            .enter()
-            .append("text")
+            .join("text")
             .attr("class", "time-segment-divider-text")
             .attr("x", d => {
                 const angle = angleScale(d);
-                return Math.cos(angle - Math.PI/2) * maxOuterRadius*1.05;
+                return Math.cos(angle - Math.PI/2) * timeLabelRadius;
             })
             .attr("y", d => {
                 const angle = angleScale(d);
-                return Math.sin(angle - Math.PI/2) * maxOuterRadius*1.05;
+                return Math.sin(angle - Math.PI/2) * timeLabelRadius;
             })
             .attr("text-anchor", "middle")
-            .style("font-size", "12px")
+            .style("font-size", `${this.config.ring2LabelFontSize}px`)
             .style("fill", "#333")
             .text(d => `${d}s`);    
         // Add circular dividers between participant bands
         // These show the stacking of participants within each time segment
-        if (participants.length > 1) {
+        if (participants.length > 1 && segmentHeight > 0) {
             const dividerData = [];
 
             // Create dividers for each time segment based on how many participants are in that time
@@ -945,12 +972,15 @@ class RadialGlyph {
                 });
 
                 // Create dividers between each participant in this time
-                // Each divider is at fixed intervals (FIXED_SEGMENT_HEIGHT)
+                // Each divider is at the same dynamic segment height used for the bars.
                 for (let i = 1; i < numInThisTime; i++) {
                     dividerData.push({
                         timeIdx: timeIdx,
                         dividerIdx: i,
-                        radius: this.config.ring2InnerRadius + (i * FIXED_SEGMENT_HEIGHT)
+                        radius: Math.min(
+                            dividerOuterRadius,
+                            this.config.ring2InnerRadius + (i * segmentHeight)
+                        )
                     });
                 }
             });

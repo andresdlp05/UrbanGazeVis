@@ -52,7 +52,7 @@ loadImageScores().then(() => {
     populateSelect("img-select-v3", allImages, "img", all=false);
 });
 
-// Toggle de orden de imágenes (Score / Nº)
+// Toggle de orden de imágenes (Sorted by Image / ID)
 document.getElementById('img-sort-toggle').addEventListener('change', function() {
     const previousValue = document.getElementById('img-select').value;
     populateSelect("img-select", allImages, "img", false);
@@ -110,6 +110,15 @@ const previousParticipant = partSelect.value; // guardar selección actual
     const imgView = document.getElementById("sel-img-view");
     const segView = getSegmentationLayerImage();
     const imageWrapper = document.getElementById('component-1');
+    if (typeof window.resetImagePanTransform === 'function') {
+        window.resetImagePanTransform();
+    }
+    if (typeof alignOverlayWithImage === 'function') {
+        alignOverlayWithImage();
+    }
+    if (typeof syncImageBlendDividerPosition === 'function') {
+        syncImageBlendDividerPosition();
+    }
     if (selectedImage !== "all") {
         currentImageOriginalPath = `/static/images/images/images/${selectedImage}.jpg`;
         currentImageSegmentationPath = getSegmentationPath(selectedImage, currentDatasetSelect);

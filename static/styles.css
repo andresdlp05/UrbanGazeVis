@@ -2,6 +2,11 @@ body {
     font-family: "Inter", sans-serif;
 }
 
+#component-1 {
+    --img-pan-x: 0px;
+    --img-pan-y: 0px;
+}
+
 #image-tooltip {
     position: absolute;
     pointer-events: none;
@@ -15,8 +20,13 @@ body {
 }
 
 #sel-img-view {
-    transform: scale(1.5);
-    position: relative;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(calc(-50% + var(--img-pan-x)), calc(-50% + var(--img-pan-y))) scale(1.5);
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
     z-index: 2;
 }
 
@@ -24,8 +34,10 @@ body {
     position: absolute;
     left: 50%;
     top: 50%;
-    transform: translate(-50%, -50%) scale(1.5);
+    transform: translate(calc(-50% + var(--img-pan-x)), calc(-50% + var(--img-pan-y))) scale(1.5);
     pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
     z-index: 3;
     clip-path: inset(0 100% 0 0);
     -webkit-clip-path: inset(0 100% 0 0);

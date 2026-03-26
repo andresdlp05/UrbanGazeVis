@@ -9,6 +9,53 @@ let lastOverlayRenderSignature = null;
 const precomputedOverlayCache = new Map();
 const precomputedOverlayDataCache = new Map();
 let precomputedOverlayDataRequestToken = 0;
+const MAX_CONTOUR_POINTS = 6000;
+const MAX_HEATMAP_POINTS = 7000;
+const MAX_GAZE_POINTS_CANVAS = 12000;
+const MAX_FIXATION_POINTS_CANVAS = 10000;
+
+function samplePoints(points, maxPoints) {
+    if (!Array.isArray(points) || points.length <= maxPoints) {
+        return points || [];
+    }
+    const stride = Math.max(1, Math.ceil(points.length / maxPoints));
+    const sampled = [];
+    for (let i = 0; i < points.length; i += stride) {
+        sampled.push(points[i]);
+    }
+    return sampled;
+}
+
+function getOrCreatePointsCanvas(overlayContainer, width, height) {
+    let canvas = overlayContainer.querySelector('canvas.overlay-points-canvas');
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = 'overlay-points-canvas';
+        canvas.style.position = 'absolute';
+        canvas.style.left = '0px';
+        canvas.style.top = '0px';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.pointerEvents = 'none';
+        canvas.style.zIndex = '1195';
+        overlayContainer.appendChild(canvas);
+    }
+
+    const pixelRatio = window.devicePixelRatio || 1;
+    const targetW = Math.max(1, Math.round(width * pixelRatio));
+    const targetH = Math.max(1, Math.round(height * pixelRatio));
+
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+    }
+
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    return ctx;
+}
 
 function buildParticipantPointIndex(points) {
     const index = new Map();
@@ -220,8 +267,13 @@ function drawContoursOverlay(points, dataType) {
     const scaleX = imgWidth / dataSpaceWidth;
     const scaleY = imgHeight / dataSpaceHeight;
 
+    const sampledPoints = samplePoints(points, MAX_CONTOUR_POINTS);
+    if (sampledPoints.length !== points.length) {
+        overlayLog(`Contour sampling: ${points.length} -> ${sampledPoints.length}`);
+    }
+
     // Preparar datos para contourDensity - escalar e invertir Y
-    const contourPoints = points.map(p => {
+    const contourPoints = sampledPoints.map(p => {
         const scaledX = p.x * scaleX;
         const scaledY = (dataSpaceHeight - p.y) * scaleY;  // Invert Y
         return [scaledX, scaledY];
@@ -281,12 +333,17 @@ function drawHeatmapOverlay(points, dataType) {
     const imgOffsetTop = imgRect.top - containerRect.top;
     const imgOffsetLeft = imgRect.left - containerRect.left;
 
+    const sampledPoints = samplePoints(points, MAX_HEATMAP_POINTS);
+    if (sampledPoints.length !== points.length) {
+        overlayLog(`Heatmap sampling: ${points.length} -> ${sampledPoints.length}`);
+    }
+
     // Crear canvas para el heatmap con mayor resolución interna
     const canvas = document.createElement('canvas');
     canvas.className = 'heatmap-canvas';
 
-    // Usar resolución interna optimizada (2x para balance entre calidad y velocidad)
-    const resolutionScale = 2; // 2x resolución interna
+    // Escala adaptativa para acelerar en datasets grandes.
+    const resolutionScale = sampledPoints.length > 4500 ? 1 : 1.35;
     canvas.width = imgWidth;
     canvas.height = imgHeight;
     canvas.style.position = 'absolute';
@@ -313,29 +370,27 @@ function drawHeatmapOverlay(points, dataType) {
     // Crear matriz de acumulación con mayor resolución para más suavidad
     const heatmapWidth = Math.ceil(imgWidth * resolutionScale);
     const heatmapHeight = Math.ceil(imgHeight * resolutionScale);
-    const heatmap = new Array(heatmapHeight).fill(0).map(() => new Array(heatmapWidth).fill(0));
+    const heatmap = new Float32Array(heatmapWidth * heatmapHeight);
 
     // Acumular puntos en la matriz de alta resolución
-    points.forEach(p => {
+    sampledPoints.forEach(p => {
         const scaledX = Math.round(p.x * scaleX * resolutionScale);
         const scaledY = Math.round((dataSpaceHeight - p.y) * scaleY * resolutionScale);  // Invert Y
 
         if (scaledX >= 0 && scaledX < heatmapWidth && scaledY >= 0 && scaledY < heatmapHeight) {
-            heatmap[scaledY][scaledX] += 1;
+            heatmap[(scaledY * heatmapWidth) + scaledX] += 1;
         }
     });
 
-    // Aplicar suavizado Gaussiano optimizado (sigma menor para mayor velocidad)
-    const sigma = 24; // Sigma fijo optimizado (no escalar con resolución)
-    const smoothedHeatmap = gaussianBlur(heatmap, sigma);
+    // Sigma adaptativo para balance entre nitidez y velocidad.
+    const sigma = sampledPoints.length > 4500 ? 14 : 18;
+    const smoothedHeatmap = gaussianBlurFloat32(heatmap, heatmapWidth, heatmapHeight, sigma);
 
     // Encontrar el valor máximo para normalizar
     let maxValue = 0;
-    for (let y = 0; y < heatmapHeight; y++) {
-        for (let x = 0; x < heatmapWidth; x++) {
-            if (smoothedHeatmap[y][x] > maxValue) {
-                maxValue = smoothedHeatmap[y][x];
-            }
+    for (let i = 0; i < smoothedHeatmap.length; i++) {
+        if (smoothedHeatmap[i] > maxValue) {
+            maxValue = smoothedHeatmap[i];
         }
     }
 
@@ -350,7 +405,7 @@ function drawHeatmapOverlay(points, dataType) {
 
     for (let y = 0; y < heatmapHeight; y++) {
         for (let x = 0; x < heatmapWidth; x++) {
-            const value = maxValue > 0 ? smoothedHeatmap[y][x] / maxValue : 0;
+            const value = maxValue > 0 ? smoothedHeatmap[(y * heatmapWidth) + x] / maxValue : 0;
             const color = getJetColor(value);
 
             const index = (y * heatmapWidth + x) * 4;
@@ -367,59 +422,55 @@ function drawHeatmapOverlay(points, dataType) {
     // Escalar con interpolación suave al canvas final
     ctx.drawImage(tempCanvas, 0, 0, heatmapWidth, heatmapHeight, 0, 0, imgWidth, imgHeight);
 
-    overlayLog('✓ Heatmap drawn with', points.length, 'points at', resolutionScale + 'x resolution');
+    overlayLog('✓ Heatmap drawn with', sampledPoints.length, 'points at', resolutionScale + 'x resolution');
 }
 
-// Función para aplicar blur Gaussiano a una matriz 2D
-function gaussianBlur(matrix, sigma) {
-    const height = matrix.length;
-    const width = matrix[0].length;
-
-    // Crear kernel Gaussiano
+// Blur gaussiano separable optimizado para Float32Array 1D.
+function gaussianBlurFloat32(matrix, width, height, sigma) {
     const kernelSize = Math.ceil(sigma * 3) * 2 + 1;
-    const kernel = [];
+    const kernel = new Float32Array(kernelSize);
     const center = Math.floor(kernelSize / 2);
-    let sum = 0;
 
+    let sum = 0;
     for (let i = 0; i < kernelSize; i++) {
         const x = i - center;
         const value = Math.exp(-(x * x) / (2 * sigma * sigma));
-        kernel.push(value);
+        kernel[i] = value;
         sum += value;
     }
-
-    // Normalizar kernel
     for (let i = 0; i < kernelSize; i++) {
         kernel[i] /= sum;
     }
 
-    // Aplicar blur horizontal
-    const temp = matrix.map(row => [...row]);
+    const temp = new Float32Array(width * height);
+    const result = new Float32Array(width * height);
+
+    // Horizontal
     for (let y = 0; y < height; y++) {
+        const rowOffset = y * width;
         for (let x = 0; x < width; x++) {
             let value = 0;
             for (let k = 0; k < kernelSize; k++) {
                 const srcX = x + k - center;
                 if (srcX >= 0 && srcX < width) {
-                    value += matrix[y][srcX] * kernel[k];
+                    value += matrix[rowOffset + srcX] * kernel[k];
                 }
             }
-            temp[y][x] = value;
+            temp[rowOffset + x] = value;
         }
     }
 
-    // Aplicar blur vertical
-    const result = temp.map(row => [...row]);
+    // Vertical
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
             let value = 0;
             for (let k = 0; k < kernelSize; k++) {
                 const srcY = y + k - center;
                 if (srcY >= 0 && srcY < height) {
-                    value += temp[srcY][x] * kernel[k];
+                    value += temp[(srcY * width) + x] * kernel[k];
                 }
             }
-            result[y][x] = value;
+            result[(y * width) + x] = value;
         }
     }
 
@@ -504,15 +555,16 @@ function visualizeGazePointsOverlay() {
     const imgRect = img.getBoundingClientRect();
     const scaleFactorX = imgRect.width / dataSpaceWidth;
     const scaleFactorY = imgRect.height / dataSpaceHeight;
+    const pointsToRender = samplePoints(currentGazePoints, MAX_GAZE_POINTS_CANVAS);
 
     overlayLog(`=== Gaze Points Overlay Debug ===`);
     overlayLog(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
     overlayLog(`Display size: ${imgRect.width}x${imgRect.height}`);
     overlayLog(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
-    overlayLog(`Total gaze points to render: ${currentGazePoints.length}`);
+    overlayLog(`Total gaze points to render: ${pointsToRender.length}`);
 
     // Si hay un segmento de scarf plot seleccionado, pintar los puntos con su color
-    let selectedSegmentPointColor = null;
+    let selectedSegmentPointColor = 'rgba(11, 168, 226, 0.6)';
     if (currentScarfSegment && currentScarfSegment.color) {
         const parsedColor = d3.color(currentScarfSegment.color);
         if (parsedColor) {
@@ -524,39 +576,27 @@ function visualizeGazePointsOverlay() {
         overlayLog(`Using scarf segment color for gaze points: ${selectedSegmentPointColor}`);
     }
 
-    const fragment = document.createDocumentFragment();
+    const ctx = getOrCreatePointsCanvas(overlayContainer, imgRect.width, imgRect.height);
+    ctx.fillStyle = selectedSegmentPointColor;
+    const radius = 2;
 
-    currentGazePoints.forEach((point, index) => {
-        const gazeElement = document.createElement('div');
-        gazeElement.className = 'gaze-point';
-
-        // Scale coordinates from data space (800x600) to display space
-        // Invert Y axis: data has Y=0 at bottom, screen has Y=0 at top
+    for (let i = 0; i < pointsToRender.length; i++) {
+        const point = pointsToRender[i];
         const scaledX = point.x * scaleFactorX;
         const scaledY = (dataSpaceHeight - point.y) * scaleFactorY;
 
-        if (index < 3) {
-            overlayLog(`=== Gaze Point ${index} ===`);
+        if (i < 3) {
+            overlayLog(`=== Gaze Point ${i} ===`);
             overlayLog(`  Original coords: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
             overlayLog(`  Scaled position: (${scaledX.toFixed(1)}, ${scaledY.toFixed(1)})`);
         }
 
-        gazeElement.style.left = scaledX + 'px';
-        gazeElement.style.top = scaledY + 'px';
+        ctx.beginPath();
+        ctx.arc(scaledX, scaledY, radius, 0, Math.PI * 2);
+        ctx.fill();
+    }
 
-        // Aplicar color del segmento seleccionado (si existe)
-        if (selectedSegmentPointColor) {
-            gazeElement.style.background = selectedSegmentPointColor;
-            gazeElement.style.border = '1px solid #000';
-            gazeElement.style.boxSizing = 'border-box';
-        }
-
-        fragment.appendChild(gazeElement);
-    });
-
-    overlayContainer.appendChild(fragment);
-    overlayLog(`✓ Rendered ${currentGazePoints.length} gaze points`);
-    overlayLog(`  Overlay container now has ${overlayContainer.children.length} children`);
+    overlayLog(`✓ Rendered ${pointsToRender.length} gaze points on canvas`);
 }
 
 function visualizeFixationPointsOverlay() {
@@ -587,52 +627,46 @@ function visualizeFixationPointsOverlay() {
     const imgRect = img.getBoundingClientRect();
     const scaleFactorX = imgRect.width / dataSpaceWidth;
     const scaleFactorY = imgRect.height / dataSpaceHeight;
+    const pointsToRender = samplePoints(currentFixationPoints, MAX_FIXATION_POINTS_CANVAS);
 
     overlayLog(`=== Fixation Overlay Debug ===`);
     overlayLog(`Data coordinate space: ${dataSpaceWidth}x${dataSpaceHeight}`);
     overlayLog(`Display size: ${imgRect.width}x${imgRect.height}`);
     overlayLog(`Scale factors: X=${scaleFactorX.toFixed(3)}, Y=${scaleFactorY.toFixed(3)}`);
 
-    const fragment = document.createDocumentFragment();
+    const ctx = getOrCreatePointsCanvas(overlayContainer, imgRect.width, imgRect.height);
+    const hasSegmentColor = currentScarfSegment && currentScarfSegment.color;
+    const strokeColor = hasSegmentColor ? '#000' : 'rgba(255, 165, 0, 0.8)';
+    const fillColor = hasSegmentColor ? currentScarfSegment.color : 'transparent';
 
-    currentFixationPoints.forEach((point, index) => {
-        const fixationElement = document.createElement('div');
-        fixationElement.className = 'fixation-point';
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    ctx.fillStyle = fillColor;
 
-        // Scale coordinates from data space (800x600) to display space
-        // Invertir Y para ser consistente con gaze points
+    for (let i = 0; i < pointsToRender.length; i++) {
+        const point = pointsToRender[i];
         const scaledX = point.x * scaleFactorX;
         const scaledY = (dataSpaceHeight - point.y) * scaleFactorY;
 
-        if (index < 3) {
-            overlayLog(`=== Fixation Point ${index} ===`);
+        if (i < 3) {
+            overlayLog(`=== Fixation Point ${i} ===`);
             overlayLog(`  Original coords: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
             overlayLog(`  Scaled position: (${scaledX.toFixed(1)}, ${scaledY.toFixed(1)})`);
             overlayLog(`  Duration: ${point.duration?.toFixed(3) || 0}s`);
         }
 
-        fixationElement.style.left = scaledX + 'px';
-        fixationElement.style.top = scaledY + 'px';
-
-        // Tamaño basado en duración (también escalado para mantener proporción)
         const size = Math.max(8, Math.min(point.duration / 30, 20)) * Math.min(scaleFactorX, scaleFactorY);
-        fixationElement.style.width = size + 'px';
-        fixationElement.style.height = size + 'px';
+        const radius = Math.max(2, size / 2);
 
-        // Usar el color del segmento del scarf plot si está disponible
-        if (currentScarfSegment && currentScarfSegment.color) {
-            fixationElement.style.background = currentScarfSegment.color;
-            fixationElement.style.borderColor = '#000';
-            fixationElement.style.borderWidth = '2px';
-            fixationElement.style.boxSizing = 'border-box';
-            fixationElement.style.opacity = '0.95';
+        ctx.beginPath();
+        ctx.arc(scaledX, scaledY, radius, 0, Math.PI * 2);
+        if (hasSegmentColor) {
+            ctx.fill();
         }
+        ctx.stroke();
+    }
 
-        fragment.appendChild(fixationElement);
-    });
-
-    overlayContainer.appendChild(fragment);
-    overlayLog('Rendered', currentFixationPoints.length, 'fixation points in overlay container');
+    overlayLog('Rendered', pointsToRender.length, 'fixation points on canvas');
 }
 
 function filterPointsByParticipant(allPoints, participantId) {
@@ -826,6 +860,49 @@ function alignOverlayWithImage() {
     overlayContainer.style.width = displayWidth + 'px';
     overlayContainer.style.height = displayHeight + 'px';
     overlayContainer.style.pointerEvents = 'none';
+
+    const contourSvg = component1.querySelector('svg.contour-svg');
+    if (contourSvg) {
+        contourSvg.style.left = relativeLeft + 'px';
+        contourSvg.style.top = relativeTop + 'px';
+        contourSvg.setAttribute('width', displayWidth);
+        contourSvg.setAttribute('height', displayHeight);
+    }
+
+    const heatmapCanvas = component1.querySelector('canvas.heatmap-canvas');
+    if (heatmapCanvas) {
+        heatmapCanvas.style.left = relativeLeft + 'px';
+        heatmapCanvas.style.top = relativeTop + 'px';
+        heatmapCanvas.style.width = displayWidth + 'px';
+        heatmapCanvas.style.height = displayHeight + 'px';
+    }
+
+    component1.querySelectorAll('img.precomputed-overlay').forEach(el => {
+        el.style.left = relativeLeft + 'px';
+        el.style.top = relativeTop + 'px';
+        el.style.width = displayWidth + 'px';
+        el.style.height = displayHeight + 'px';
+    });
+
+    const scarfOverlay = component1.querySelector('#scarf-bounding-overlay');
+    const scarfBorder = component1.querySelector('#scarf-bounding-border');
+    if (scarfOverlay) {
+        const prevOverlayLeft = parseFloat(scarfOverlay.style.left) || 0;
+        const prevOverlayTop = parseFloat(scarfOverlay.style.top) || 0;
+        scarfOverlay.style.left = relativeLeft + 'px';
+        scarfOverlay.style.top = relativeTop + 'px';
+        scarfOverlay.style.width = displayWidth + 'px';
+        scarfOverlay.style.height = displayHeight + 'px';
+        if (scarfBorder) {
+            const currentBorderLeft = parseFloat(scarfBorder.style.left) || 0;
+            const currentBorderTop = parseFloat(scarfBorder.style.top) || 0;
+            scarfBorder.style.left = (currentBorderLeft + (relativeLeft - prevOverlayLeft)) + 'px';
+            scarfBorder.style.top = (currentBorderTop + (relativeTop - prevOverlayTop)) + 'px';
+        }
+        if (typeof updateScarfBoundingOverlayDimMask === 'function') {
+            updateScarfBoundingOverlayDimMask(scarfOverlay);
+        }
+    }
 
     overlayLog(`=== Overlay Alignment ===`);
     overlayLog(`Image position: (${relativeLeft}, ${relativeTop})`);

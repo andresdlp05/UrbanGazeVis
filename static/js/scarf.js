@@ -691,8 +691,8 @@ function createBoundingBoxOverlay(boundingBox) {
     const component1Rect = component1.getBoundingClientRect();
 
     // Calcular posiciÃ³n de la imagen relativa al contenedor
-    const imgLeft = (component1Rect.width - imgRect.width) / 2;
-    const imgTop = (component1Rect.height - imgRect.height) / 2;
+    const imgLeft = imgRect.left - component1Rect.left;
+    const imgTop = imgRect.top - component1Rect.top;
 
     // Crear overlay con opacidad en toda la imagen (incluyendo el Ã¡rea del bounding box)
     const overlay = document.createElement('div');

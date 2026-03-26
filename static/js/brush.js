@@ -1,5 +1,79 @@
 // brush.js — circular brush selection, glyph tooltip, area analysis
 
+function computeGlyphLayoutFromSelectionRadius(selectionRadius) {
+    const ringBoundaryRadius = Math.max(24, selectionRadius);
+    const ring1OuterRadius = Math.max(16, ringBoundaryRadius * 0.88);
+    const ring1InnerRadius = Math.max(10, ringBoundaryRadius * 0.60);
+    const centerRadius = Math.max(8, ringBoundaryRadius * 0.46);
+    const ring2InnerRadius = Math.max(ring1OuterRadius + 8, ringBoundaryRadius * 1.06);
+    const ring2OuterRadius = Math.max(ring2InnerRadius + 18, ringBoundaryRadius * 1.55);
+    const ring2LabelFontSize = 12;
+    const ring2LabelHalfExtent = Math.max(6, Math.round(ring2LabelFontSize * 0.95));
+    const ring2LabelOffset = 10;
+    const glyphCanvasRadius = ring2OuterRadius + ring2LabelOffset + ring2LabelHalfExtent;
+
+    return {
+        centerRadius,
+        ring1InnerRadius,
+        ring1OuterRadius,
+        ring2InnerRadius,
+        ring2OuterRadius,
+        ring2LabelFontSize,
+        ring2LabelHalfExtent,
+        ring2LabelOffset,
+        glyphCanvasRadius
+    };
+}
+
+function fitSelectionRadiusToGlyphContainer(targetRadius, maxContainerRadius, minRadius = 0) {
+    const safeTargetRadius = Math.max(0, targetRadius || 0);
+    const safeMaxContainerRadius = Math.max(0, maxContainerRadius || 0);
+    let low = 0;
+    let high = safeTargetRadius;
+
+    // Binary search for max selection radius whose glyph container fits.
+    for (let i = 0; i < 28; i++) {
+        const mid = (low + high) / 2;
+        const layout = computeGlyphLayoutFromSelectionRadius(mid);
+        if (layout.glyphCanvasRadius <= safeMaxContainerRadius) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+
+    const fittedMinRadius = Math.max(0, minRadius || 0);
+    if (computeGlyphLayoutFromSelectionRadius(fittedMinRadius).glyphCanvasRadius <= safeMaxContainerRadius) {
+        return Math.max(fittedMinRadius, low);
+    }
+    return low;
+}
+
+function applyImagePanTransform(imageWrapper, panX, panY) {
+    if (!imageWrapper) return;
+    const nextX = Number.isFinite(panX) ? panX : 0;
+    const nextY = Number.isFinite(panY) ? panY : 0;
+    imagePanOffsetX = nextX;
+    imagePanOffsetY = nextY;
+    imageWrapper.style.setProperty('--img-pan-x', `${nextX}px`);
+    imageWrapper.style.setProperty('--img-pan-y', `${nextY}px`);
+}
+
+function resetImagePanTransformState(imageWrapper) {
+    applyImagePanTransform(imageWrapper, 0, 0);
+}
+
+window.resetImagePanTransform = function() {
+    const imageWrapper = document.getElementById('component-1');
+    resetImagePanTransformState(imageWrapper);
+    if (typeof alignOverlayWithImage === 'function') {
+        alignOverlayWithImage();
+    }
+    if (typeof syncImageBlendDividerPosition === 'function') {
+        syncImageBlendDividerPosition();
+    }
+};
+
 function createBrushSelection(imageWrapper, img) {
     console.log('Creando selector circular para selección de área...');
 
@@ -31,16 +105,29 @@ function createBrushSelection(imageWrapper, img) {
     const DATA_WIDTH = 800;
     const DATA_HEIGHT = 600;
 
-    // Usar el tamaño visual real del img (post-transform) para evitar desalineaciones
-    const imgRect = img.getBoundingClientRect();
-    const wrapperRect = imageWrapper.getBoundingClientRect();
-    const imgWidth = imgRect.width;
-    const imgHeight = imgRect.height;
-    const svgOffsetLeft = imgRect.left - wrapperRect.left;
-    const svgOffsetTop = imgRect.top - wrapperRect.top;
+    applyImagePanTransform(imageWrapper, imagePanOffsetX, imagePanOffsetY);
+
+    function getImageGeometry() {
+        const currentImgRect = img.getBoundingClientRect();
+        const currentWrapperRect = imageWrapper.getBoundingClientRect();
+        return {
+            imgRect: currentImgRect,
+            wrapperRect: currentWrapperRect,
+            imgWidth: currentImgRect.width,
+            imgHeight: currentImgRect.height,
+            svgOffsetLeft: currentImgRect.left - currentWrapperRect.left,
+            svgOffsetTop: currentImgRect.top - currentWrapperRect.top
+        };
+    }
+
+    function getMinRadiusDisplay(width, height) {
+        return Math.max(4, Math.min(24, (Math.min(width, height) / 2) - 2));
+    }
+
+    const initialGeometry = getImageGeometry();
     const overlayPad = 2; // Compensa seams de subpíxel en bordes
-    const overlayWidth = Math.max(1, wrapperRect.width + overlayPad);
-    const overlayHeight = Math.max(1, wrapperRect.height + overlayPad);
+    const overlayWidth = Math.max(1, initialGeometry.wrapperRect.width + overlayPad);
+    const overlayHeight = Math.max(1, initialGeometry.wrapperRect.height + overlayPad);
 
     const outsideDimLayer = d3.select(imageWrapper)
         .append('div')
@@ -78,20 +165,22 @@ function createBrushSelection(imageWrapper, img) {
         .style('pointer-events', 'none')
         .style('display', 'none');
 
-    const minRadiusDisplay = Math.max(4, Math.min(24, (Math.min(imgWidth, imgHeight) / 2) - 2));
-    const defaultRadius = Math.max(minRadiusDisplay, Math.min(imgWidth, imgHeight) * 0.15);
+    const defaultRadius = Math.max(
+        getMinRadiusDisplay(initialGeometry.imgWidth, initialGeometry.imgHeight),
+        Math.min(initialGeometry.imgWidth, initialGeometry.imgHeight) * 0.15
+    );
 
     const selectionState = {
-        cx: imgWidth / 2,
-        cy: imgHeight / 2,
+        cx: initialGeometry.imgWidth / 2,
+        cy: initialGeometry.imgHeight / 2,
         radius: defaultRadius
     };
     circleSelectionState = selectionState;
 
     // Restaurar última selección circular cuando existe
     if (currentAnalyzedArea && currentAnalyzedArea.shape === 'circle') {
-        const screenScaleX = imgWidth / DATA_WIDTH;
-        const screenScaleY = imgHeight / DATA_HEIGHT;
+        const screenScaleX = initialGeometry.imgWidth / DATA_WIDTH;
+        const screenScaleY = initialGeometry.imgHeight / DATA_HEIGHT;
         const restoredCenterX = currentAnalyzedArea.center_x;
         const restoredCenterY = currentAnalyzedArea.center_y;
         const restoredRadius = currentAnalyzedArea.radius;
@@ -104,24 +193,78 @@ function createBrushSelection(imageWrapper, img) {
     }
 
     let userHasInteracted = false;
+    let selectionConstraintMode = 'glyph';
 
-    function clampSelection() {
-        // Permitir mover el círculo parcialmente fuera de la imagen para cubrir costados/esquinas
-        const overflowX = Math.max(40, Math.round(imgWidth * 0.4));
-        const overflowY = Math.max(40, Math.round(imgHeight * 0.4));
+    function clampSelection(geometry = getImageGeometry()) {
+        const imgWidth = geometry.imgWidth;
+        const imgHeight = geometry.imgHeight;
+        const minRadiusDisplay = getMinRadiusDisplay(imgWidth, imgHeight);
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-        selectionState.cx = Math.max(-overflowX, Math.min(imgWidth + overflowX, selectionState.cx));
-        selectionState.cy = Math.max(-overflowY, Math.min(imgHeight + overflowY, selectionState.cy));
+        if (selectionConstraintMode === 'image') {
+            // Modo pan: permitir llegar a bordes y esquinas de la imagen.
+            selectionState.cx = clamp(selectionState.cx, 0, imgWidth);
+            selectionState.cy = clamp(selectionState.cy, 0, imgHeight);
 
-        // Limitar radio con un máximo amplio (ya no forzamos que el círculo quede totalmente dentro)
-        const maxRadius = Math.max(
-            minRadiusDisplay,
-            Math.hypot(imgWidth + overflowX, imgHeight + overflowY)
+            const maxRadius = Math.max(minRadiusDisplay, Math.hypot(imgWidth, imgHeight));
+            selectionState.radius = clamp(selectionState.radius, minRadiusDisplay, maxRadius);
+            return;
+        }
+
+        // Colisión basada en TODO el contenedor del glyph (no solo el círculo rojo).
+        const edgePadding = 2;
+
+        const maxContainerRadiusGlobal = Math.max(0, (Math.min(imgWidth, imgHeight) / 2) - edgePadding);
+        selectionState.radius = fitSelectionRadiusToGlyphContainer(
+            selectionState.radius,
+            maxContainerRadiusGlobal,
+            minRadiusDisplay
         );
-        selectionState.radius = Math.max(minRadiusDisplay, Math.min(selectionState.radius, maxRadius));
+
+        let glyphCollisionRadius = computeGlyphLayoutFromSelectionRadius(selectionState.radius).glyphCanvasRadius;
+        selectionState.cx = clamp(
+            selectionState.cx,
+            edgePadding + glyphCollisionRadius,
+            imgWidth - edgePadding - glyphCollisionRadius
+        );
+        selectionState.cy = clamp(
+            selectionState.cy,
+            edgePadding + glyphCollisionRadius,
+            imgHeight - edgePadding - glyphCollisionRadius
+        );
+
+        const maxContainerRadiusAtCenter = Math.max(
+            0,
+            Math.min(
+                selectionState.cx - edgePadding,
+                imgWidth - edgePadding - selectionState.cx,
+                selectionState.cy - edgePadding,
+                imgHeight - edgePadding - selectionState.cy
+            )
+        );
+
+        selectionState.radius = fitSelectionRadiusToGlyphContainer(
+            selectionState.radius,
+            maxContainerRadiusAtCenter,
+            minRadiusDisplay
+        );
+
+        glyphCollisionRadius = computeGlyphLayoutFromSelectionRadius(selectionState.radius).glyphCanvasRadius;
+        selectionState.cx = clamp(
+            selectionState.cx,
+            edgePadding + glyphCollisionRadius,
+            imgWidth - edgePadding - glyphCollisionRadius
+        );
+        selectionState.cy = clamp(
+            selectionState.cy,
+            edgePadding + glyphCollisionRadius,
+            imgHeight - edgePadding - glyphCollisionRadius
+        );
     }
 
-    function toCircleAreaData() {
+    function toCircleAreaData(geometry = getImageGeometry()) {
+        const imgWidth = geometry.imgWidth;
+        const imgHeight = geometry.imgHeight;
         const dataScaleX = DATA_WIDTH / imgWidth;
         const dataScaleY = DATA_HEIGHT / imgHeight;
 
@@ -228,11 +371,108 @@ function createBrushSelection(imageWrapper, img) {
         .style('cursor', 'ns-resize')
         .style('pointer-events', 'all');
 
+    function syncImagePanDependentLayers() {
+        if (typeof alignOverlayWithImage === 'function') {
+            alignOverlayWithImage();
+        }
+        if (typeof syncImageBlendDividerPosition === 'function') {
+            syncImageBlendDividerPosition();
+        }
+    }
+
+    let panResetAnimationFrame = null;
+    let glyphDragLockUntil = 0;
+
+    function cancelPanResetAnimation() {
+        if (panResetAnimationFrame !== null) {
+            cancelAnimationFrame(panResetAnimationFrame);
+            panResetAnimationFrame = null;
+        }
+    }
+
+    function lockGlyphDragFor(durationMs) {
+        glyphDragLockUntil = performance.now() + Math.max(0, durationMs || 0);
+    }
+
+    function isGlyphDragLocked() {
+        return performance.now() < glyphDragLockUntil;
+    }
+
+    function animateImagePanBackToOrigin(options = {}) {
+        const duration = Math.max(120, Number(options.duration) || 260);
+        const keepGlyphScreenPosition = options.keepGlyphScreenPosition === true;
+        const targetConstraintMode = options.targetConstraintMode || 'glyph';
+
+        if (Math.abs(imagePanOffsetX) < 0.5 && Math.abs(imagePanOffsetY) < 0.5) {
+            selectionConstraintMode = targetConstraintMode;
+            return;
+        }
+
+        cancelPanResetAnimation();
+
+        const startPanX = imagePanOffsetX;
+        const startPanY = imagePanOffsetY;
+        const startCx = selectionState.cx;
+        const startCy = selectionState.cy;
+
+        if (keepGlyphScreenPosition) {
+            selectionConstraintMode = 'free';
+        }
+
+        const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+        const startedAt = performance.now();
+
+        const step = (now) => {
+            const rawT = Math.min(1, (now - startedAt) / duration);
+            const eased = easeOutCubic(rawT);
+            const currentPanX = startPanX * (1 - eased);
+            const currentPanY = startPanY * (1 - eased);
+
+            applyImagePanTransform(imageWrapper, currentPanX, currentPanY);
+
+            if (keepGlyphScreenPosition) {
+                selectionState.cx = startCx + (startPanX - currentPanX);
+                selectionState.cy = startCy + (startPanY - currentPanY);
+            }
+
+            syncImagePanDependentLayers();
+            renderSelector();
+
+            if (rawT < 1) {
+                panResetAnimationFrame = requestAnimationFrame(step);
+                return;
+            }
+
+            panResetAnimationFrame = null;
+            selectionConstraintMode = targetConstraintMode;
+            renderSelector();
+        };
+
+        panResetAnimationFrame = requestAnimationFrame(step);
+    }
+
+    let isImagePanPointerActive = false;
+    let isImagePanDragging = false;
+    let imagePanPointerId = null;
+    let imagePanStartClientX = 0;
+    let imagePanStartClientY = 0;
+    let imagePanLastClientX = 0;
+    let imagePanLastClientY = 0;
+    const imagePanStartThreshold = 2;
+
     function renderSelector() {
-        clampSelection();
+        const geometry = getImageGeometry();
+        const imgWidth = geometry.imgWidth;
+        const imgHeight = geometry.imgHeight;
+        const svgOffsetLeft = geometry.svgOffsetLeft;
+        const svgOffsetTop = geometry.svgOffsetTop;
+
+        clampSelection(geometry);
 
         const isVisible = userHasInteracted ? 'block' : 'none';
-        svgContainer.style('cursor', userHasInteracted ? 'default' : 'crosshair');
+        if (!isImagePanDragging) {
+            svgContainer.style('cursor', userHasInteracted ? 'default' : 'crosshair');
+        }
         const screenCx = svgOffsetLeft + selectionState.cx;
         const screenCy = svgOffsetTop + selectionState.cy;
 
@@ -283,15 +523,28 @@ function createBrushSelection(imageWrapper, img) {
 
     const moveDrag = d3.drag()
         .on('start', function() {
+            selectionConstraintMode = 'glyph';
             window.brushActive = true;
             userHasInteracted = true;
             enableClearButton();
             clearAreaAnalysisVisualsDuringDrag();
+            const resetDurationMs = 260;
+            if (Math.abs(imagePanOffsetX) > 0.5 || Math.abs(imagePanOffsetY) > 0.5) {
+                animateImagePanBackToOrigin({
+                    keepGlyphScreenPosition: true,
+                    targetConstraintMode: 'glyph',
+                    duration: resetDurationMs
+                });
+                lockGlyphDragFor(resetDurationMs);
+            }
         })
         .on('drag', function(event) {
+            if (isGlyphDragLocked()) return;
+            cancelPanResetAnimation();
+            const geometry = getImageGeometry();
             const [mx, my] = d3.pointer(event, svgContainer.node());
-            selectionState.cx = mx - svgOffsetLeft;
-            selectionState.cy = my - svgOffsetTop;
+            selectionState.cx = mx - geometry.svgOffsetLeft;
+            selectionState.cy = my - geometry.svgOffsetTop;
             renderSelector();
         })
         .on('end', function() {
@@ -301,15 +554,28 @@ function createBrushSelection(imageWrapper, img) {
 
     const resizeDrag = d3.drag()
         .on('start', function() {
+            selectionConstraintMode = 'glyph';
             window.brushActive = true;
             userHasInteracted = true;
             enableClearButton();
             clearAreaAnalysisVisualsDuringDrag();
+            const resetDurationMs = 260;
+            if (Math.abs(imagePanOffsetX) > 0.5 || Math.abs(imagePanOffsetY) > 0.5) {
+                animateImagePanBackToOrigin({
+                    keepGlyphScreenPosition: true,
+                    targetConstraintMode: 'glyph',
+                    duration: resetDurationMs
+                });
+                lockGlyphDragFor(resetDurationMs);
+            }
         })
         .on('drag', function(event) {
+            if (isGlyphDragLocked()) return;
+            cancelPanResetAnimation();
+            const geometry = getImageGeometry();
             const [mx, my] = d3.pointer(event, svgContainer.node());
-            const localX = mx - svgOffsetLeft;
-            const localY = my - svgOffsetTop;
+            const localX = mx - geometry.svgOffsetLeft;
+            const localY = my - geometry.svgOffsetTop;
             const dx = localX - selectionState.cx;
             const dy = localY - selectionState.cy;
             selectionState.radius = Math.sqrt((dx * dx) + (dy * dy));
@@ -323,6 +589,126 @@ function createBrushSelection(imageWrapper, img) {
     selectionHitArea.call(moveDrag);
     resizeHandle.call(resizeDrag);
 
+    function isPointOutsideGlyphContainer(localX, localY) {
+        const dx = localX - selectionState.cx;
+        const dy = localY - selectionState.cy;
+        const distanceToCenter = Math.sqrt((dx * dx) + (dy * dy));
+        const glyphContainerRadius = computeGlyphLayoutFromSelectionRadius(selectionState.radius).glyphCanvasRadius + 2;
+        return distanceToCenter > glyphContainerRadius;
+    }
+
+    const svgNode = svgContainer.node();
+
+    function handleImagePanPointerDown(event) {
+        if (event.button !== 0) return;
+        if (!userHasInteracted) return;
+        if (window.brushActive) return;
+
+        const geometry = getImageGeometry();
+        const [mx, my] = d3.pointer(event, svgNode);
+        const localX = mx - geometry.svgOffsetLeft;
+        const localY = my - geometry.svgOffsetTop;
+
+        if (!isPointOutsideGlyphContainer(localX, localY)) return;
+
+        isImagePanPointerActive = true;
+        isImagePanDragging = false;
+        imagePanPointerId = event.pointerId;
+        imagePanStartClientX = event.clientX;
+        imagePanStartClientY = event.clientY;
+        imagePanLastClientX = event.clientX;
+        imagePanLastClientY = event.clientY;
+
+        if (svgNode.setPointerCapture) {
+            svgNode.setPointerCapture(event.pointerId);
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    function handleImagePanPointerMove(event) {
+        if (!isImagePanPointerActive) return;
+        if (event.pointerId !== imagePanPointerId) return;
+
+        const deltaX = event.clientX - imagePanLastClientX;
+        const deltaY = event.clientY - imagePanLastClientY;
+        if (deltaX === 0 && deltaY === 0) return;
+
+        if (!isImagePanDragging) {
+            const totalDx = event.clientX - imagePanStartClientX;
+            const totalDy = event.clientY - imagePanStartClientY;
+            if (Math.abs(totalDx) < imagePanStartThreshold && Math.abs(totalDy) < imagePanStartThreshold) {
+                imagePanLastClientX = event.clientX;
+                imagePanLastClientY = event.clientY;
+                return;
+            }
+
+            isImagePanDragging = true;
+            selectionConstraintMode = 'image';
+            window.brushActive = true;
+            enableClearButton();
+            clearAreaAnalysisVisualsDuringDrag();
+        }
+
+        const targetCx = selectionState.cx - deltaX;
+        const targetCy = selectionState.cy - deltaY;
+        selectionState.cx = targetCx;
+        selectionState.cy = targetCy;
+
+        const geometry = getImageGeometry();
+        clampSelection(geometry);
+        const correctionX = selectionState.cx - targetCx;
+        const correctionY = selectionState.cy - targetCy;
+
+        applyImagePanTransform(
+            imageWrapper,
+            imagePanOffsetX + deltaX - correctionX,
+            imagePanOffsetY + deltaY - correctionY
+        );
+
+        syncImagePanDependentLayers();
+        svgContainer.style('cursor', 'grabbing');
+        renderSelector();
+
+        imagePanLastClientX = event.clientX;
+        imagePanLastClientY = event.clientY;
+
+        event.preventDefault();
+    }
+
+    function handleImagePanPointerEnd(event) {
+        if (!isImagePanPointerActive) return;
+        if (event.pointerId !== imagePanPointerId) return;
+
+        if (svgNode.releasePointerCapture && svgNode.hasPointerCapture && svgNode.hasPointerCapture(event.pointerId)) {
+            svgNode.releasePointerCapture(event.pointerId);
+        }
+
+        const shouldAnalyze = isImagePanDragging;
+        isImagePanPointerActive = false;
+        isImagePanDragging = false;
+        imagePanPointerId = null;
+        selectionConstraintMode = 'image';
+        imagePanStartClientX = 0;
+        imagePanStartClientY = 0;
+        imagePanLastClientX = 0;
+        imagePanLastClientY = 0;
+        window.brushActive = false;
+
+        renderSelector();
+
+        if (shouldAnalyze) {
+            scheduleAreaAnalysis(true);
+            event.preventDefault();
+        }
+    }
+
+    svgNode.addEventListener('pointerdown', handleImagePanPointerDown);
+    svgNode.addEventListener('pointermove', handleImagePanPointerMove);
+    svgNode.addEventListener('pointerup', handleImagePanPointerEnd);
+    svgNode.addEventListener('pointercancel', handleImagePanPointerEnd);
+
     function clearCircleSelection() {
         console.log('Limpiando selector circular');
 
@@ -334,6 +720,12 @@ function createBrushSelection(imageWrapper, img) {
             areaAnalysisAbortController.abort();
             areaAnalysisAbortController = null;
         }
+        cancelPanResetAnimation();
+        isImagePanPointerActive = false;
+        isImagePanDragging = false;
+        imagePanPointerId = null;
+        selectionConstraintMode = 'glyph';
+        window.brushActive = false;
 
         window.brushSelection = null;
         currentAnalyzedArea = null;
@@ -356,10 +748,15 @@ function createBrushSelection(imageWrapper, img) {
         currentOverlayTypes = [];
         updateOverlay();
 
+        const geometry = getImageGeometry();
+        selectionConstraintMode = 'glyph';
         userHasInteracted = false;
-        selectionState.cx = imgWidth / 2;
-        selectionState.cy = imgHeight / 2;
-        selectionState.radius = defaultRadius;
+        selectionState.cx = geometry.imgWidth / 2;
+        selectionState.cy = geometry.imgHeight / 2;
+        selectionState.radius = Math.max(
+            getMinRadiusDisplay(geometry.imgWidth, geometry.imgHeight),
+            Math.min(geometry.imgWidth, geometry.imgHeight) * 0.15
+        );
         renderSelector();
 
         setClearButtonEnabled(false);
@@ -369,10 +766,12 @@ function createBrushSelection(imageWrapper, img) {
 
     svgContainer.on('click.circleSelectionActivate', function(event) {
         if (window.brushActive || userHasInteracted) return;
+        selectionConstraintMode = 'glyph';
+        const geometry = getImageGeometry();
         const [mx, my] = d3.pointer(event, svgContainer.node());
-        const localX = mx - svgOffsetLeft;
-        const localY = my - svgOffsetTop;
-        if (localX < 0 || localX > imgWidth || localY < 0 || localY > imgHeight) return;
+        const localX = mx - geometry.svgOffsetLeft;
+        const localY = my - geometry.svgOffsetTop;
+        if (localX < 0 || localX > geometry.imgWidth || localY < 0 || localY > geometry.imgHeight) return;
         selectionState.cx = localX;
         selectionState.cy = localY;
         userHasInteracted = true;
@@ -393,6 +792,7 @@ function createBrushSelection(imageWrapper, img) {
         clearCircleSelection();
     });
 
+    syncImagePanDependentLayers();
     renderSelector();
 
     const btnClear = document.getElementById('clearBrushBtn');
@@ -532,17 +932,31 @@ function showGlyphTooltip(area, data) {
     }
 
     const selectionRadius = Math.max(24, radius);
+    const desiredLayout = computeGlyphLayoutFromSelectionRadius(selectionRadius);
 
-    // El círculo rojo (selección) debe quedar entre el anillo de sectores y las barras externas
-    const ringBoundaryRadius = selectionRadius;
-    const ring1OuterRadius = Math.max(16, Math.round(ringBoundaryRadius * 0.88));
-    const ring1InnerRadius = Math.max(10, Math.round(ringBoundaryRadius * 0.60));
-    const centerRadius = Math.max(8, Math.round(ringBoundaryRadius * 0.46));
-    const ring2InnerRadius = Math.max(ring1OuterRadius + 8, Math.round(ringBoundaryRadius * 1.06));
-    const ring2OuterRadius = Math.max(ring2InnerRadius + 18, Math.round(ringBoundaryRadius * 1.55));
+    // Verificar que el contenedor completo del glyph cabe en el recuadro.
+    const edgePadding = 2;
+    const minDistanceToEdge = Math.min(
+        centerX - edgePadding,
+        wrapperRect.width - centerX - edgePadding,
+        centerY - edgePadding,
+        wrapperRect.height - centerY - edgePadding
+    );
+    const maxDrawableRadius = Math.max(0, minDistanceToEdge);
+    if (maxDrawableRadius + 0.5 < desiredLayout.glyphCanvasRadius) {
+        return;
+    }
 
-    const glyphCanvasRadius = Math.max(110, ring2OuterRadius + 40);
-    const glyphSize = Math.max(220, Math.floor(glyphCanvasRadius * 2));
+    const centerRadius = desiredLayout.centerRadius;
+    const ring1InnerRadius = desiredLayout.ring1InnerRadius;
+    const ring1OuterRadius = desiredLayout.ring1OuterRadius;
+    const ring2InnerRadius = desiredLayout.ring2InnerRadius;
+    const ring2OuterRadius = desiredLayout.ring2OuterRadius;
+    const ring2LabelOffset = desiredLayout.ring2LabelOffset;
+    const ring2LabelHalfExtent = desiredLayout.ring2LabelHalfExtent;
+    const ring2LabelFontSize = desiredLayout.ring2LabelFontSize;
+    const glyphCanvasRadius = desiredLayout.glyphCanvasRadius;
+    const glyphSize = Math.max(2, Math.floor(glyphCanvasRadius * 2));
     const overlayLeft = centerX - glyphCanvasRadius;
     const overlayTop = centerY - glyphCanvasRadius;
     const glyphOverlay = d3.select(imageWrapper)
@@ -596,7 +1010,10 @@ function showGlyphTooltip(area, data) {
         ring1InnerRadius: ring1InnerRadius,
         ring1OuterRadius: ring1OuterRadius,
         ring2InnerRadius: ring2InnerRadius,
-        ring2OuterRadius: ring2OuterRadius
+        ring2OuterRadius: ring2OuterRadius,
+        ring2LabelOffset: ring2LabelOffset,
+        ring2LabelHalfExtent: ring2LabelHalfExtent,
+        ring2LabelFontSize: ring2LabelFontSize
     });
 
     currentGlyph.update(data);
