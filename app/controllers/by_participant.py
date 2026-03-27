@@ -14,6 +14,7 @@ from sklearn.manifold import TSNE
 import umap
 from sklearn.manifold import MDS
 from app.shared.logging_utils import debug_log, error_log
+from app.shared.csv_sources import read_named_csv, resolve_csv_source, resolve_source
 
 # Importar servicio de cachÃ© para t-SNE
 try:
@@ -26,9 +27,9 @@ except ImportError as e:
 by_participant_bp = Blueprint('by_participant', __name__)
 
 class ByParticipantController:
-    def __init__(self, csv_path='static/data/csv/df_final1.csv', scores_path='static/data/json/data_hololens_vectors.json',
-                 vectors_path='static/data/json/data_hololens_vectors.json', segmentations_path='static/data/csv/upd_segmentations.csv',
-                 saliency_cache_path='static/data/csv/precalculated_saliency_coverage.csv'):
+    def __init__(self, csv_path='df_final1.csv', scores_path='static/data/json/data_hololens_vectors.json',
+                 vectors_path='static/data/json/data_hololens_vectors.json', segmentations_path='upd_segmentations.csv',
+                 saliency_cache_path='precalculated_saliency_coverage.csv'):
         self.csv_path = csv_path
         self.scores_path = scores_path
         self.vectors_path = vectors_path
@@ -41,16 +42,28 @@ class ByParticipantController:
         self.saliency_cache = None
         self.load_data()
 
+    def _read_csv_source(self, csv_reference, base_path, **read_csv_kwargs):
+        filename = os.path.basename(str(csv_reference))
+        known_files = {'df_final1.csv', 'upd_segmentations.csv', 'precalculated_saliency_coverage.csv'}
+
+        if filename in known_files:
+            df, source = read_named_csv(filename, base_path=base_path, **read_csv_kwargs)
+            return df, source
+
+        source = resolve_csv_source(csv_reference, base_path=base_path)
+        return pd.read_csv(source, **read_csv_kwargs), source
+
     def load_data(self):
         """Carga datos de gaze tracking, scores, vectors y segmentaciones"""
         try:
+            base_path = os.path.join(os.path.dirname(__file__), '..', '..')
+
             # Cargar CSV de gaze tracking
-            full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
-            self.data = pd.read_csv(full_path)
-            debug_log(f"By Participant data loaded: {len(self.data)} rows")
+            self.data, csv_source = self._read_csv_source(self.csv_path, base_path=base_path)
+            debug_log(f"By Participant data loaded: {len(self.data)} rows from {csv_source}")
 
             # Cargar JSON con informaciÃ³n de imÃ¡genes y participantes
-            scores_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.scores_path)
+            scores_full_path = resolve_source(self.scores_path, base_path=base_path)
             if os.path.exists(scores_full_path):
                 with open(scores_full_path, 'r') as f:
                     self.scores_data = json.load(f)
@@ -59,7 +72,7 @@ class ByParticipantController:
                 debug_log(f"Scores file not found at: {scores_full_path}")
 
             # Cargar vectores/embeddings de imÃ¡genes
-            vectors_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.vectors_path)
+            vectors_full_path = resolve_source(self.vectors_path, base_path=base_path)
             if os.path.exists(vectors_full_path):
                 with open(vectors_full_path, 'r') as f:
                     self.vectors_data = json.load(f)
@@ -68,9 +81,12 @@ class ByParticipantController:
                 debug_log(f"Vectors file not found at: {vectors_full_path}")
 
             # Cargar datos de segmentaciÃ³n
-            segmentations_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.segmentations_path)
-            if os.path.exists(segmentations_full_path):
-                self.segmentations_data = pd.read_csv(segmentations_full_path, sep=';')
+            try:
+                self.segmentations_data, segmentations_source = self._read_csv_source(
+                    self.segmentations_path,
+                    base_path=base_path,
+                    sep=';'
+                )
                 debug_log(f"Segmentations data loaded: {len(self.segmentations_data)} rows")
                 # Limpiar columnas con todos los valores < 20.0 despuÃ©s de la fila 4 (menos agresivo)
                 exclude_cols = ["image_id", "seg_image_path", "seg_overlay_image_path", "mask_path"]
@@ -82,16 +98,20 @@ class ByParticipantController:
                 if cols_all_zero:
                     self.segmentations_data = self.segmentations_data.drop(columns=cols_all_zero)
                     debug_log(f"Removed {len(cols_all_zero)} sparse segmentation columns")
-            else:
-                debug_log(f"Segmentations file not found at: {segmentations_full_path}")
+            except Exception as e:
+                self.segmentations_data = None
+                error_log(f"Segmentations data unavailable: {e}")
 
             # Cargar cachÃ© de saliency coverage pre-calculado
-            saliency_cache_full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.saliency_cache_path)
-            if os.path.exists(saliency_cache_full_path):
-                self.saliency_cache = pd.read_csv(saliency_cache_full_path)
+            try:
+                self.saliency_cache, saliency_cache_source = self._read_csv_source(
+                    self.saliency_cache_path,
+                    base_path=base_path
+                )
                 debug_log(f" Saliency coverage cache loaded: {len(self.saliency_cache)} records")
-            else:
-                debug_log(f" Saliency coverage cache not found at: {saliency_cache_full_path}")
+            except Exception as e:
+                self.saliency_cache = None
+                error_log(f" Saliency coverage cache unavailable: {e}")
                 debug_log("   Run 'python precalculate_saliency_coverage.py' to generate it")
         except Exception as e:
             error_log(f"Error loading by_participant data: {e}")

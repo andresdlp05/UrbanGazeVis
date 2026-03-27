@@ -7,6 +7,7 @@ from app.controllers.by_participant import *
 from app.controllers.glyph import glyph_bp
 from app.services.fixation_detection_ivt import get_fixations_ivt
 from app.shared.ivt_cache_service import get_ivt_cache_service
+from app.shared.csv_sources import log_csv_source_configuration
 import random
 import json
 import os
@@ -102,6 +103,8 @@ def get_assets_version():
         if os.path.exists(abs_path):
             mtimes.append(int(os.path.getmtime(abs_path)))
     return max(mtimes) if mtimes else 1
+
+log_csv_source_configuration(base_path=os.path.dirname(os.path.abspath(__file__)))
 
 _svc = get_ivt_cache_service()
 gaze_data                = _svc.gaze_data

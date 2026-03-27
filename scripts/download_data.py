@@ -11,6 +11,7 @@ import zipfile
 # ConfiguraciÃ³n de archivos a descargar
 FILES_TO_DOWNLOAD = [
     {
+        'kind': 'csv_bundle',
         'file_id': '1VKLKNJts-bRPuXT3i34NpPLjF-RksI9G',
         'output': 'static/data.zip',
         'extract_to': 'static/data',
@@ -47,6 +48,15 @@ FILES_TO_DOWNLOAD = [
         'check_file': 'static/images/images/ADE20K-GroupDisorder/images/ADE_train_00000001.jpg'
     }
 ]
+
+
+def using_remote_csv():
+    mode = os.environ.get('CSV_SOURCE_MODE', 'remote').strip().lower()
+    return mode in {'remote', 'url'}
+
+
+def should_skip_download(file_info):
+    return file_info.get('kind') == 'csv_bundle' and using_remote_csv()
 
 def check_file_exists(filepath):
     """Verifica si un archivo existe"""
@@ -129,6 +139,9 @@ def main():
 
     # Verificar quÃ© archivos faltan
     for file_info in FILES_TO_DOWNLOAD:
+        if should_skip_download(file_info):
+            print(f"â­ï¸  Saltando {file_info['output']} (CSV remoto habilitado)")
+            continue
         if not check_file_exists(file_info['check_file']):
             all_files_exist = False
             print(f"âš ï¸  Falta: {file_info['check_file']}")
@@ -144,6 +157,8 @@ def main():
     print("\nðŸ“¥ Iniciando descarga de archivos faltantes...")
 
     for file_info in FILES_TO_DOWNLOAD:
+        if should_skip_download(file_info):
+            continue
         if check_file_exists(file_info['check_file']):
             print(f"â­ï¸  Saltando {file_info['output']} (ya existe)")
             continue

@@ -12,6 +12,8 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
+      - CSV_SOURCE_MODE=remote
+      - STARTUP_DOWNLOAD_DATA=1
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/"]

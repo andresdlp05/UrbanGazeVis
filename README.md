@@ -81,6 +81,22 @@ Una vez que los contenedores estén en ejecución, abre tu navegador web y acced
 
 El sistema descargará automáticamente los datos necesarios la primera vez que se ejecute. Este proceso puede tardar varios minutos dependiendo de tu conexión a Internet.
 
+## CSV remotos (bucket R2)
+
+El backend puede leer los CSV pesados directamente desde URLs para evitar empaquetarlos en el despliegue.
+
+- `CSV_SOURCE_MODE=remote`: usa URLs remotas (por defecto en Docker).
+- `CSV_SOURCE_MODE=local`: fuerza lectura desde `static/data/csv/`.
+- `CSV_BASE_URL`: permite cambiar el bucket base.
+
+URLs remotas usadas por defecto:
+
+- `df_final1.csv`
+- `ivt_precalculated.csv`
+- `precalculated_fixations.csv`
+- `precalculated_saliency_coverage.csv`
+- `upd_segmentations.csv`
+
 ## Comandos útiles de Docker
 
 ### Ver el estado de los contenedores

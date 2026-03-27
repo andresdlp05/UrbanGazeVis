@@ -11,6 +11,7 @@ import os
 from app.services.fixation_detection_ivt import get_fixations_ivt
 from app.shared.cache import cache
 from app.shared.logging_utils import debug_log, error_log
+from app.shared.csv_sources import resolve_csv_source
 
 try:
     from app.shared.data_service import get_data_service
@@ -22,7 +23,7 @@ except ImportError as e:
 scarf_bp = Blueprint('scarf_plot', __name__)
 
 class ScarfPlotController:
-    def __init__(self, csv_path='static/data/csv/df_final1.csv'):
+    def __init__(self, csv_path='df_final1.csv'):
         self.csv_path = csv_path
         self.data = None
         self.scores_data = None
@@ -35,9 +36,9 @@ class ScarfPlotController:
                 self.data = self.data_service.get_main_data()
                 self.scores_data = self.data_service.get_scores_data()
             else:
-                full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
-                if os.path.exists(full_path):
-                    self.data = pd.read_csv(full_path)
+                base_path = os.path.join(os.path.dirname(__file__), '..', '..')
+                csv_source = resolve_csv_source(self.csv_path, base_path=base_path)
+                self.data = pd.read_csv(csv_source)
         except Exception as e:
             error_log(f"Error cargando datos scarf: {e}")
 

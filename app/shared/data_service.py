@@ -3,10 +3,10 @@ DataService - Servicio singleton para gestionar mÃºltiples datasets
 Permite cargar diferentes CSVs segÃºn el tipo de segmentaciÃ³n seleccionado
 """
 
-import pandas as pd
 import os
 import json
 from app.shared.logging_utils import debug_log, error_log
+from app.shared.csv_sources import get_csv_source, read_named_csv
 
 class DataService:
     """Singleton para gestionar mÃºltiples datasets de eye tracking"""
@@ -61,10 +61,10 @@ class DataService:
         """
         # Mapeo de dataset a archivo CSV
         dataset_files = {
-            'main_class': 'static/data/csv/df_final1.csv',
-            'grouped': 'static/data/csv/df_final1.csv',
-            'disorder': 'static/data/csv/df_final1.csv',
-            'grouped_disorder': 'static/data/csv/df_final1.csv'
+            'main_class': 'df_final1.csv',
+            'grouped': 'df_final1.csv',
+            'disorder': 'df_final1.csv',
+            'grouped_disorder': 'df_final1.csv'
         }
 
         # Validar dataset_select
@@ -78,21 +78,22 @@ class DataService:
             return self.data_cache[dataset_select]
 
         # Cargar dataset
-        csv_path = dataset_files[dataset_select]
-        full_path = os.path.join(self.base_path, csv_path)
+        csv_filename = dataset_files[dataset_select]
+        csv_source = get_csv_source(csv_filename, base_path=self.base_path)
 
-        # Reusar DataFrame si ya estÃ¡ cargado para este archivo fÃ­sico
-        if full_path in self.file_cache:
-            self.data_cache[dataset_select] = self.file_cache[full_path]
+        # Reusar DataFrame si ya estÃ¡ cargado para esta fuente fÃ­sica
+        if csv_source in self.file_cache:
+            self.data_cache[dataset_select] = self.file_cache[csv_source]
             debug_log(f"DataService: Reusando DataFrame compartido para '{dataset_select}'")
             return self.data_cache[dataset_select]
 
         try:
-            debug_log(f"DataService: Cargando dataset '{dataset_select}' desde {csv_path}...")
-            df = pd.read_csv(full_path)
+            debug_log(f"DataService: Cargando dataset '{dataset_select}' desde {csv_source}...")
+            df, loaded_source = read_named_csv(csv_filename, base_path=self.base_path)
 
             # Guardar en cache fÃ­sico y lÃ³gico (comparten referencia)
-            self.file_cache[full_path] = df
+            self.file_cache[loaded_source] = df
+            self.file_cache[csv_source] = df
             self.data_cache[dataset_select] = df
 
             debug_log(f"âœ… DataService: Dataset '{dataset_select}' cargado ({len(df)} filas, {len(df.columns)} columnas)")
@@ -110,7 +111,7 @@ class DataService:
             return df
 
         except FileNotFoundError:
-            error_log(f"âŒ ERROR: Archivo no encontrado: {full_path}")
+            error_log(f"âŒ ERROR: Archivo no encontrado para {csv_filename}")
             error_log(f"   AsegÃºrate de que el archivo existe o descarga los datos necesarios")
 
             # Fallback a main_class si el archivo no existe

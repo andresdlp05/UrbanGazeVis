@@ -1,8 +1,10 @@
 # app/shared/ivt_cache_service.py
 
-import os, json, math
+import os
+import json
 import pandas as pd
 from app.shared.logging_utils import debug_log, error_log
+from app.shared.csv_sources import read_named_csv
 
 class IVTCacheService:
     _instance = None
@@ -17,6 +19,7 @@ class IVTCacheService:
         if self._initialized:
             return
         self._initialized = True
+        self.base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 
         self.gaze_data           = self._load_gaze_data()
         self.ivt_cache           = self._load_ivt_cache()
@@ -30,10 +33,8 @@ class IVTCacheService:
 
     def _load_gaze_data(self):
         try:
-            base = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(base, '..', '..', 'static', 'data', 'csv', 'df_final1.csv')
-            df = pd.read_csv(data_path)
-            debug_log(f"IVTCacheService: gaze data loaded ({len(df)} rows)")
+            df, source = read_named_csv('df_final1.csv', base_path=self.base_path)
+            debug_log(f"IVTCacheService: gaze data loaded ({len(df)} rows) from {source}")
             return df
         except Exception as e:
             error_log(f"IVTCacheService: error loading gaze data: {e}")
@@ -41,23 +42,16 @@ class IVTCacheService:
 
     def _load_ivt_cache(self):
         try:
-            base = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(base, '..', '..', 'static', 'data', 'csv', 'ivt_precalculated.csv')
-            if os.path.exists(data_path):
-                df = pd.read_csv(data_path)
-                debug_log(f"IVTCacheService: IVT cache loaded ({len(df)} rows)")
-                return df
-            else:
-                error_log(f"IVTCacheService: IVT cache file not found at {data_path}")
-                return None
+            df, source = read_named_csv('ivt_precalculated.csv', base_path=self.base_path)
+            debug_log(f"IVTCacheService: IVT cache loaded ({len(df)} rows) from {source}")
+            return df
         except Exception as e:
             error_log(f"IVTCacheService: error loading IVT cache: {e}")
             return None
 
     def _load_hololens_data(self):
         try:
-            base = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(base, '..', '..', 'static', 'data', 'json', 'data_hololens.json')
+            data_path = os.path.join(self.base_path, 'static', 'data', 'json', 'data_hololens.json')
             if os.path.exists(data_path):
                 with open(data_path, 'r') as f:
                     data = json.loads(f.read())

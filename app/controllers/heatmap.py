@@ -11,6 +11,7 @@ import json
 from app.services.fixation_detection_ivt import get_fixations_ivt
 from app.shared.cache import cache
 from app.shared.logging_utils import debug_log, error_log
+from app.shared.csv_sources import resolve_csv_source
 
 # Importar servicio compartido de datos
 try:
@@ -31,7 +32,7 @@ except ImportError as e:
 heatmap_bp = Blueprint('heatmap', __name__)
 
 class HeatmapController:
-    def __init__(self, csv_path='static/data/csv/df_final1.csv'):
+    def __init__(self, csv_path='df_final1.csv'):
         self.csv_path = csv_path
         self.data = None
         self.scores_data = None
@@ -51,8 +52,9 @@ class HeatmapController:
                     debug_log(f"OK: HeatmapController: Scores cargados desde DataService ({len(self.scores_data)} imagenes)")
             else:
                 # Fallback: cargar manualmente si DataService no estÃ¡ disponible
-                full_path = os.path.join(os.path.dirname(__file__), '..', '..', self.csv_path)
-                self.data = pd.read_csv(full_path)
+                base_path = os.path.join(os.path.dirname(__file__), '..', '..')
+                csv_source = resolve_csv_source(self.csv_path, base_path=base_path)
+                self.data = pd.read_csv(csv_source)
                 error_log(f"ADVERTENCIA: HeatmapController: Datos cargados localmente ({len(self.data)} puntos de gaze)")
 
                 scores_path = os.path.join(os.path.dirname(__file__), '..', '..', 'static', 'data', 'json', 'data_hololens.json')

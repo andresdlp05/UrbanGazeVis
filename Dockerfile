@@ -12,6 +12,9 @@ LABEL version="2.0"
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=main.py
 ENV FLASK_ENV=production
+ENV CSV_SOURCE_MODE=remote
+ENV STARTUP_DOWNLOAD_DATA=0
+ENV GUNICORN_WORKERS=1
 
 # Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y \
@@ -51,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8081/ || exit 1
 
 # Comando de inicio en produccion (WSGI)
-CMD ["sh", "-c", "python scripts/download_data.py && gunicorn -w 2 -b 0.0.0.0:8081 --timeout 120 main:app"]
+CMD ["sh", "-c", "if [ \"${STARTUP_DOWNLOAD_DATA:-0}\" = \"1\" ]; then python scripts/download_data.py; fi && gunicorn -w ${GUNICORN_WORKERS:-1} -b 0.0.0.0:${PORT:-8081} --timeout 120 main:app"]

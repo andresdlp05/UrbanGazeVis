@@ -1,7 +1,6 @@
-﻿#!/bin/bash
+#!/bin/bash
 
-# Entrypoint script para Docker container
-# Descarga automÃ¡ticamente datos desde Google Drive si no existen
+# Entrypoint script for Docker
 
 set -e
 
@@ -10,45 +9,44 @@ echo "  TrackVis - Docker Container Starting"
 echo "=========================================="
 echo ""
 
-# Verificar si los datos ya existen
 DATA_EXISTS=false
+CSV_SOURCE_MODE="${CSV_SOURCE_MODE:-remote}"
 
-if [ -f "/app/static/data/csv/df_final1.csv" ] && \
+if [ "$CSV_SOURCE_MODE" = "local" ] && \
+   [ -f "/app/static/data/csv/df_final1.csv" ] && \
    [ -f "/app/static/images/images/images/0.jpg" ] && \
    [ -f "/app/static/images/images/images_seg/0.png" ]; then
-    echo "âœ… Datos encontrados, saltando descarga"
+    echo "Data files found (local mode), skipping download"
+    DATA_EXISTS=true
+elif [ "$CSV_SOURCE_MODE" != "local" ] && \
+     [ -f "/app/static/images/images/images/0.jpg" ] && \
+     [ -f "/app/static/images/images/images_seg/0.png" ]; then
+    echo "Images found and remote CSV mode enabled ($CSV_SOURCE_MODE), skipping download"
     DATA_EXISTS=true
 else
-    echo "âš ï¸  Datos no encontrados, iniciando descarga desde Google Drive..."
+    echo "Missing required assets, starting download from Google Drive..."
     echo ""
 fi
 
-# Si los datos no existen, descargarlos
 if [ "$DATA_EXISTS" = false ]; then
-    # Verificar si el script de descarga existe
     if [ -f "/app/scripts/download_images_configured.sh" ]; then
-        echo "Ejecutando script de descarga..."
+        echo "Running data download script..."
         bash /app/scripts/download_images_configured.sh
     else
-        echo "âŒ ERROR: Script de descarga no encontrado"
-        echo "   Por favor, descarga los datos manualmente antes de ejecutar Docker"
-        echo ""
-        echo "   Ejecuta: ./scripts/download_images_configured.sh"
-        echo ""
+        echo "ERROR: download script not found"
+        echo "Run: ./scripts/download_images_configured.sh"
         exit 1
     fi
 fi
 
 echo ""
 echo "=========================================="
-echo "  âœ… Datos listos"
+echo "  Data ready"
 echo "=========================================="
 echo ""
-echo "ðŸš€ Iniciando servidor Flask..."
-echo "   Puerto: 8081"
-echo "   Acceder a: http://localhost:8081"
+echo "Starting Flask server..."
+echo "Port: 8081"
+echo "URL: http://localhost:8081"
 echo ""
 
-# Ejecutar el comando proporcionado (por defecto: python main.py)
 exec "$@"
-

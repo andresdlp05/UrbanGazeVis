@@ -9,6 +9,7 @@ import numpy as np
 import os
 import json
 from typing import List, Dict, Any, Optional
+from app.shared.csv_sources import read_named_csv
 
 class PrecalculatedFixationsService:
     """Servicio para manejar fijaciones pre-calculadas"""
@@ -17,23 +18,21 @@ class PrecalculatedFixationsService:
         self.fixations_df = None
         self.stats = None
         self.loaded = False
+        self.base_path = os.path.dirname(os.path.abspath(__file__))
         self.load_data()
     
     def load_data(self):
         """Cargar datos de fijaciones pre-calculadas"""
         try:
             # Cargar CSV de fijaciones
-            fixations_path = os.path.join('static', 'data', 'csv', 'precalculated_fixations.csv')
-            if not os.path.exists(fixations_path):
-                print(f" No se encontró archivo de fijaciones pre-calculadas: {fixations_path}")
-                print(f" Ejecuta 'python generate_precalculated_fixations.py' para generarlo")
-                return False
-            
-            print(f" Cargando fijaciones pre-calculadas desde: {fixations_path}")
-            self.fixations_df = pd.read_csv(fixations_path)
+            self.fixations_df, source = read_named_csv(
+                'precalculated_fixations.csv',
+                base_path=self.base_path
+            )
+            print(f" Cargando fijaciones pre-calculadas desde: {source}")
             
             # Cargar estadísticas
-            stats_path = os.path.join('static', 'data', 'json', 'fixation_stats.json')
+            stats_path = os.path.join(self.base_path, 'static', 'data', 'json', 'fixation_stats.json')
             if os.path.exists(stats_path):
                 with open(stats_path, 'r') as f:
                     self.stats = json.load(f)
