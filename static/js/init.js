@@ -234,9 +234,14 @@ document.getElementById("part-select").addEventListener("change", function() {
 });
 
 document.getElementById("part-select-v2").addEventListener("change", function() {
-    // alert("Selected participant: " + this.value);
     selectedPartV2 = this.value;
     loadAttentionHeatmap(selectedPartV2);
+});
+
+document.getElementById("data-set-select-v2").addEventListener("change", function() {
+    if (selectedPartV2) {
+        loadAttentionHeatmap(selectedPartV2);
+    }
 });
 
 document.getElementById("part-select-v3").addEventListener("change", function() {

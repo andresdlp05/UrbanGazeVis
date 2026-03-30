@@ -739,7 +739,8 @@ function loadHeatmap(imageId, dataType = 'gaze', mode = 'attention') {
 
 function loadAttentionHeatmap(participantId) {
     const baseUrl = window.location.origin;
-    const apiUrl = `${baseUrl}/api/heatmap/participant/${participantId}`;
+    const datasetSelect = document.getElementById('data-set-select-v2')?.value || 'main_class';
+    const apiUrl = `${baseUrl}/api/heatmap/participant/${participantId}?dataset_select=${datasetSelect}`;
     fetch(apiUrl)
         .then(response => {
             if (!response.ok) {

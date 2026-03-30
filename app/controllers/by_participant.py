@@ -2,7 +2,7 @@
 Controller para la pÃ¡gina By Participant
 """
 
-from flask import Blueprint, render_template, jsonify
+from flask import Blueprint, render_template, jsonify, request
 import pandas as pd
 import numpy as np
 import json
@@ -143,7 +143,7 @@ class ByParticipantController:
         images = sorted(participant_data['ImageName'].unique().tolist())
         return images
 
-    def get_heatmap_data_for_participant(self, participant_id, top_n_clases=15):
+    def get_heatmap_data_for_participant(self, participant_id, top_n_clases=15, dataset_select='main_class'):
         """
         Calcula matriz de densidad ponderada para un participante
         - Filas: clases (top N por tiempo total)
@@ -152,6 +152,20 @@ class ByParticipantController:
         """
         if self.data is None or self.scores_data is None:
             return {'error': 'No data available'}
+
+        # Seleccionar columna de clase y ratio según dataset_select
+        if dataset_select == 'disorder':
+            class_column = 'main_class_Disorder'
+            ratio_column = 'class_ratio_Disorder'
+        elif dataset_select == 'grouped':
+            class_column = 'main_class_grouped'
+            ratio_column = 'class_ratio_grouped'
+        elif dataset_select == 'grouped_disorder':
+            class_column = 'main_class_GroupDisorder'
+            ratio_column = 'class_ratio_GroupDisorder'
+        else:
+            class_column = 'main_class'
+            ratio_column = 'ratio'
 
         try:
             # Obtener imÃ¡genes que vio este participante
@@ -170,8 +184,8 @@ class ByParticipantController:
 
             # Eliminar puntos sin clasificaciÃ³n
             df_filtered = df_filtered[
-                (df_filtered['main_class'].notna()) &
-                (df_filtered['main_class'].astype(str).str.strip() != '')
+                (df_filtered[class_column].notna()) &
+                (df_filtered[class_column].astype(str).str.strip() != '')
             ].copy()
 
             if len(df_filtered) == 0:
@@ -189,13 +203,13 @@ class ByParticipantController:
             df_sorted['delta_t'] = df_sorted['Time_next'] - df_sorted['Time']
             df_sorted['delta_t'] = df_sorted['delta_t'].fillna(0.0)
 
-            # Agrupar por (imagen, main_class) y sumar delta_t
+            # Agrupar por (imagen, class_column) y sumar delta_t
             por_imagen_clase = (
                 df_sorted
-                .groupby(['ImageName', 'main_class'], dropna=False)['delta_t']
+                .groupby(['ImageName', class_column], dropna=False)['delta_t']
                 .sum()
                 .reset_index()
-                .rename(columns={'delta_t': 'time_por_imagen_clase'})
+                .rename(columns={class_column: 'main_class', 'delta_t': 'time_por_imagen_clase'})
             )
 
             # Obtener top N clases por tiempo total
@@ -208,18 +222,17 @@ class ByParticipantController:
                 .sort_values(by='total_time_global', ascending=False)
             )
 
-
-
             top_clases = suma_total_clase.head(top_n_clases)['main_class'].tolist()
             por_imagen_clase_top = por_imagen_clase[
                 por_imagen_clase['main_class'].isin(top_clases)
             ].copy()
 
-            # Obtener ratio de cada main_class en cada imagen
+            # Obtener ratio de cada clase en cada imagen
             ratio_por_imagen_clase = (
-                df_filtered[['ImageName', 'main_class', 'ratio']]
-                .dropna(subset=['main_class', 'ratio'])
-                .drop_duplicates(subset=['ImageName', 'main_class'])
+                df_filtered[['ImageName', class_column, ratio_column]]
+                .dropna(subset=[class_column, ratio_column])
+                .drop_duplicates(subset=['ImageName', class_column])
+                .rename(columns={class_column: 'main_class', ratio_column: 'ratio'})
                 .set_index(['ImageName', 'main_class'])['ratio']
                 .to_dict()
             )
@@ -562,7 +575,8 @@ def get_images_for_participant(participant_id):
 @by_participant_bp.route('/by-participant/api/heatmap/<int:participant_id>', methods=['GET'])
 def get_heatmap_for_participant(participant_id):
     """Obtiene datos de heatmap para un participante"""
-    data = by_participant_controller.get_heatmap_data_for_participant(participant_id)
+    dataset_select = request.args.get('dataset_select', 'main_class')
+    data = by_participant_controller.get_heatmap_data_for_participant(participant_id, dataset_select=dataset_select)
     return jsonify(data)
 
 

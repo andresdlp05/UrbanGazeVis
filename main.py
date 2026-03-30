@@ -145,7 +145,8 @@ def get_heatmap(image_id):
 @app.route('/api/heatmap/participant/<int:participant_id>', methods=['GET'])
 def get_attention_heatmap(participant_id):
     """Obtiene datos de heatmap para una imagen"""
-    data = by_participant_controller.get_heatmap_data_for_participant(participant_id)
+    dataset_select = request.args.get('dataset_select', 'main_class')
+    data = by_participant_controller.get_heatmap_data_for_participant(participant_id, dataset_select=dataset_select)
     return jsonify(data)
 
 @app.route('/api/saliency-coverage/<int:participant_id>', methods=['GET'])

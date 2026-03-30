@@ -198,10 +198,17 @@ fill="currentColor" viewBox="0 0 24 24" >
       <div class="h-[calc(90%)] w-full flex flex-row p-1">
          <div class="h-full w-[calc(10%)] border-r-1 border-base-300 border-dashed px-2">
             <div class="btn btn-ghost btn-sm pointer-events-none">Participant</div>
-            <select class="select select-xs" id="part-select-v2">
+            <select class="select select-xs w-full" id="part-select-v2">
                <option disabled selected>Select a participant</option>
             </select>
-            
+
+            <div class="btn btn-ghost btn-sm pointer-events-none mt-2">Segmentation Class:</div>
+            <select class="select select-xs w-full" id="data-set-select-v2">
+               <option value="main_class" selected>ADE20K Classes</option>
+               <option value="grouped">ADE20K + Grouped</option>
+               <option value="disorder">ADE20K + Disorder</option>
+               <option value="grouped_disorder">ADE20K + Grouped + Disorder</option>
+            </select>
 
             <div class="w-full flex flex-row my-1">
             <div class="btn btn-ghost btn-sm  pointer-events-none">Normalize</div>
