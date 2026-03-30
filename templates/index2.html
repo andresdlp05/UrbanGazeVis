@@ -53,11 +53,11 @@ fill="currentColor" viewBox="0 0 24 24" >
    <div class="bg-base-100 flex flex-col w-[calc(10%)] shadow-md/30 rounded-xl">
    <div class="h-[calc(5%)] rounded-xl"><div class="btn btn-ghost btn-lg w-full h-full pointer-events-none font-bold text-md text-secondary">Controls</div></div>
    <div class="h-[calc(95%)] p-4" id="controls">
-      <fieldset class="fieldset">
+      <fieldset class="fieldset w-full">
       <legend class="fieldset-legend">Image</legend>
-      <div class="w-full flex flex-row items-center justify-between gap-3 my-1 px-1">
-         <span class="text-[12px] text-black font-medium whitespace-nowrap">Sorted by: Score</span>
-         <div class="flex flex-col justify-center">
+      <div class="w-full min-w-0 flex flex-row items-center justify-between gap-1 my-1">
+         <span class="text-[11px] text-black font-medium shrink-0">Score</span>
+         <div class="flex flex-col justify-center shrink-0">
             <label class="toggle text-base-content">
             <input type="checkbox" id="img-sort-toggle"/>
             <svg aria-label="disabled" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
@@ -70,9 +70,9 @@ fill="currentColor" viewBox="0 0 24 24" >
             </svg>
             </label>
          </div>
-         <span class="text-[12px] text-black font-medium whitespace-nowrap">ID</span>
+         <span class="text-[11px] text-black font-medium shrink-0">ID</span>
       </div>
-      <select class="select select-xs" id="img-select">
+      <select class="select select-xs w-full" id="img-select">
          <option disabled selected>Select an image</option>
       </select>
       </fieldset>

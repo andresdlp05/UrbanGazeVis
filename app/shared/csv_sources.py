@@ -48,7 +48,7 @@ def is_url(value):
 
 
 def _normalize_mode(mode):
-    raw_mode = (mode or os.environ.get("CSV_SOURCE_MODE", "remote")).strip().lower()
+    raw_mode = (mode or os.environ.get("CSV_SOURCE_MODE", "local")).strip().lower()
     if raw_mode not in {"remote", "local", "auto", "url"}:
         return "remote"
     if raw_mode == "url":
