@@ -143,7 +143,7 @@ class ByParticipantController:
         images = sorted(participant_data['ImageName'].unique().tolist())
         return images
 
-    def get_heatmap_data_for_participant(self, participant_id, top_n_clases=15, dataset_select='main_class'):
+    def get_heatmap_data_for_participant(self, participant_id, top_n_clases=20, dataset_select='main_class'):
         """
         Calcula matriz de densidad ponderada para un participante
         - Filas: clases (top N por tiempo total)
@@ -222,7 +222,7 @@ class ByParticipantController:
                 .sort_values(by='total_time_global', ascending=False)
             )
 
-            top_clases = suma_total_clase.head(top_n_clases)['main_class'].tolist()
+            top_clases = (suma_total_clase if top_n_clases is None else suma_total_clase.head(top_n_clases))['main_class'].tolist()
             por_imagen_clase_top = por_imagen_clase[
                 por_imagen_clase['main_class'].isin(top_clases)
             ].copy()

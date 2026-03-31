@@ -422,18 +422,13 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     const data_matrix = [];
     for (let i = 0; i < data.classes.length; i++) {
         const className = data.classes[i];
-        // Build a lookup map: imageName -> value for this class
+        // Siempre usar rawValue para el orden — independiente del Normalize toggle
         var mapForClass = new Map();
         cellData
             .filter(d => d.className === className)
-            .forEach(d => mapForClass.set(d.imageName, d.value));
+            .forEach(d => mapForClass.set(d.imageName, d.rawValue));
 
-        // Fill the row following imageOrder
-        const row = imageOrder.map(imgName => {
-            // If no entry exists for this image/class, decide fallback:
-            // return null, 0, or any default you prefer. I'll use null here.
-            return mapForClass.get(imgName);// ? mapForClass.get(imgName) : null;
-        });
+        const row = imageOrder.map(imgName => mapForClass.get(imgName) || 0);
         data_matrix.push(row);
     }
 
