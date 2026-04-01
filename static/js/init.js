@@ -309,6 +309,10 @@ if (heatmapModeSelector) {
 document.getElementById("heatmap-normalize").addEventListener("change", (e) => {
   const normalize = e.target.checked;
   if (attentionHeatmapData != null){
+    if (typeof window.applyAttentionHeatmapNormalization === 'function' &&
+        window.applyAttentionHeatmapNormalization(normalize)) {
+        return;
+    }
     visualizeAttentionHeatmap(attentionHeatmapData, normalize);
   }
 });

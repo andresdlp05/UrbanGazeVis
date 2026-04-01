@@ -740,6 +740,8 @@ function createBrushSelection(imageWrapper, img) {
         clearHeatmapAreaFrames();
         removeScarfSegmentHighlight();
         currentScarfSegment = null;
+        window.currentScarfSegment = null;
+        window.selectedClass = null;
 
         const overlayCheckboxes = document.querySelectorAll('.overlay-checkbox');
         overlayCheckboxes.forEach(checkbox => {
@@ -747,6 +749,12 @@ function createBrushSelection(imageWrapper, img) {
         });
         currentOverlayTypes = [];
         updateOverlay();
+
+        if (typeof updateHighlightsGlobal === 'function') {
+            updateHighlightsGlobal();
+        } else if (typeof syncSegmentationLayerImage === 'function') {
+            syncSegmentationLayerImage();
+        }
 
         const geometry = getImageGeometry();
         selectionConstraintMode = 'glyph';

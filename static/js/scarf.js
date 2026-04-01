@@ -6,6 +6,8 @@ const scarfLog = window.debugLog || function(...args) {
     }
 };
 
+let previousSelectedPartBeforeScarfSegment = null;
+
 function getParticipantIndexedPoints(points, indexMap, participantId) {
     if (!participantId || participantId === 'all') {
         return points || [];
@@ -295,12 +297,68 @@ function removeScarfSegmentHighlight() {
         .attr('stroke-width', 1);
 }
 
+function restorePointsForCurrentParticipantSelection() {
+    const participantGaze = getPointsForParticipant(allGazePointsWithParticipant, selectedPart, gazePointsByParticipant);
+    const participantFixations = getPointsForParticipant(allFixationPointsWithParticipant, selectedPart, fixationPointsByParticipant);
+
+    currentGazePoints = participantGaze;
+    currentFixationPoints = participantFixations;
+
+    clearOverlayPoints();
+
+    if (currentDataType === 'gaze' && participantGaze.length > 0) {
+        visualizeGazePointsOverlay();
+    } else if (currentDataType === 'fixations' && participantFixations.length > 0) {
+        visualizeFixationPointsOverlay();
+    }
+}
+
+function clearScarfSegmentSelection() {
+    const previousPart = previousSelectedPartBeforeScarfSegment;
+
+    currentScarfSegment = null;
+    window.currentScarfSegment = null;
+    window.selectedClass = null;
+
+    if (previousPart !== null && previousPart !== undefined) {
+        selectedPart = String(previousPart);
+        const partSelect = document.getElementById('part-select');
+        if (partSelect) {
+            partSelect.value = selectedPart;
+        }
+    }
+    previousSelectedPartBeforeScarfSegment = null;
+
+    removeScarfSegmentHighlight();
+    removeBoundingBoxOverlay();
+    removeParticipantColumnHighlight();
+
+    if (typeof updateHighlightsGlobal === 'function') {
+        updateHighlightsGlobal();
+    }
+
+    restorePointsForCurrentParticipantSelection();
+    setClearButtonEnabled(Boolean(currentAnalyzedArea));
+}
+
 // FunciÃ³n principal: mostrar puntos para un segmento del scarf plot
 function showPointsForScarfSegment(segment) {
     scarfLog('Showing points for scarf segment:', segment);
+
+    if (currentScarfSegment && isSameScarfSegment(segment, currentScarfSegment)) {
+        clearScarfSegmentSelection();
+        return;
+    }
+
     window._scarfSelecting = true;
+
+    if (!currentScarfSegment) {
+        previousSelectedPartBeforeScarfSegment = selectedPart || 'all';
+    }
+
     // Guardar el segmento actual para usar su color
     currentScarfSegment = segment;
+    window.currentScarfSegment = segment;
     window.selectedClass = segment?.class || null;
     setClearButtonEnabled(true);
 
@@ -311,41 +369,77 @@ function showPointsForScarfSegment(segment) {
         partSelect.value = selectedPart;
     }
 
+    const hasRealTimeWindow = Number.isFinite(segment.start_time_real) && Number.isFinite(segment.end_time_real);
     // Convertir tiempos de milisegundos a segundos si es necesario
-    const startSec = segment.start_time_real < 100
-        ? segment.start_time_real
-        : segment.start_time_real / 1000;
-    const endSec = segment.end_time_real < 100
-        ? segment.end_time_real
-        : segment.end_time_real / 1000;
+    const startSec = hasRealTimeWindow
+        ? (segment.start_time_real < 100 ? segment.start_time_real : segment.start_time_real / 1000)
+        : null;
+    const endSec = hasRealTimeWindow
+        ? (segment.end_time_real < 100 ? segment.end_time_real : segment.end_time_real / 1000)
+        : null;
 
-    scarfLog(`Filtering for participant ${participant}, time range: ${startSec.toFixed(2)}s - ${endSec.toFixed(2)}s (${start_time}ms - ${end_time}ms)`);
+    if (hasRealTimeWindow) {
+        scarfLog(`Filtering for participant ${participant}, time range: ${startSec.toFixed(2)}s - ${endSec.toFixed(2)}s (${start_time}ms - ${end_time}ms)`);
+    } else {
+        scarfLog(`Filtering for participant ${participant} with normalized scarf time range (${start_time}ms - ${end_time}ms)`);
+    }
 
     const participantGaze = getParticipantIndexedPoints(allGazePointsWithParticipant, gazePointsByParticipant, participant);
     const participantFixations = getParticipantIndexedPoints(allFixationPointsWithParticipant, fixationPointsByParticipant, participant);
 
     // Filtrar gaze points
-    const filteredGaze = participantGaze.filter(point => {
-        const timeInSeconds = Number.isFinite(point.timeSec)
-            ? point.timeSec
-            : (point.time < 100 ? point.time : point.time / 1000);
-        return timeInSeconds >= startSec && timeInSeconds <= endSec;
-    });
+    const filteredGaze = hasRealTimeWindow
+        ? participantGaze.filter(point => {
+            const timeInSeconds = Number.isFinite(point.timeSec)
+                ? point.timeSec
+                : (point.time < 100 ? point.time : point.time / 1000);
+            return timeInSeconds >= startSec && timeInSeconds <= endSec;
+        })
+        : [];
 
-    // Filtrar fixation points
-    const filteredFixations = participantFixations.filter(point => {
-        const startInSeconds = Number.isFinite(point.startSec)
-            ? point.startSec
-            : (point.start < 100 ? point.start : point.start / 1000);
-        const endInSeconds = Number.isFinite(point.endSec)
-            ? point.endSec
-            : (point.end < 100 ? point.end : point.end / 1000);
+    let filteredFixations = [];
+    if (hasRealTimeWindow) {
+        filteredFixations = participantFixations.filter(point => {
+            const startInSeconds = Number.isFinite(point.startSec)
+                ? point.startSec
+                : (point.start < 100 ? point.start : point.start / 1000);
+            const endInSeconds = Number.isFinite(point.endSec)
+                ? point.endSec
+                : (point.end < 100 ? point.end : point.end / 1000);
 
-        // Check if fixation overlaps with segment time range
-        return (startInSeconds >= startSec && startInSeconds <= endSec) ||
-               (endInSeconds >= startSec && endInSeconds <= endSec) ||
-               (startInSeconds <= startSec && endInSeconds >= endSec);
-    });
+            // Check if fixation overlaps with segment time range
+            return (startInSeconds >= startSec && startInSeconds <= endSec) ||
+                   (endInSeconds >= startSec && endInSeconds <= endSec) ||
+                   (startInSeconds <= startSec && endInSeconds >= endSec);
+        });
+    } else {
+        const segmentStartNorm = Number(segment.start_time);
+        const segmentEndNorm = Number(segment.end_time);
+
+        const participantStartTimesMs = participantFixations
+            .map(point => toMilliseconds(point.start ?? point.start_time))
+            .filter(Number.isFinite);
+
+        const minStartMs = participantStartTimesMs.length > 0 ? Math.min(...participantStartTimesMs) : 0;
+        const maxStartMs = participantStartTimesMs.length > 0 ? Math.max(...participantStartTimesMs) : 1;
+        const timelineRangeMs = Math.max(maxStartMs - minStartMs, 1);
+
+        filteredFixations = participantFixations.filter(point => {
+            const rawStartMs = toMilliseconds(point.start ?? point.start_time);
+            if (!Number.isFinite(rawStartMs)) {
+                return false;
+            }
+
+            const durationMs = Math.max(0, toMilliseconds(point.duration) ?? 0);
+            const startNorm = ((rawStartMs - minStartMs) / timelineRangeMs) * SCARF_TIMELINE_DURATION_MS;
+            const endNorm = startNorm + durationMs;
+
+            // Check if fixation overlaps with segment time range in normalized scarf timeline.
+            return (startNorm >= segmentStartNorm && startNorm <= segmentEndNorm) ||
+                   (endNorm >= segmentStartNorm && endNorm <= segmentEndNorm) ||
+                   (startNorm <= segmentStartNorm && endNorm >= segmentEndNorm);
+        });
+    }
 
     scarfLog(`Found ${filteredGaze.length} gaze points, ${filteredFixations.length} fixation points`);
 

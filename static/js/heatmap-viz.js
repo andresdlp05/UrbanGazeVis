@@ -1,4 +1,62 @@
 const heatmapLog = window.debugLog || function(...args) { if (window.DEBUG_LOGS) { console.log(...args); } };
+let attentionHeatmapRenderState = null;
+
+function buildAttentionColumnStats(cellData) {
+    const stats = new Map();
+    (cellData || []).forEach(item => {
+        const key = String(item.imageName);
+        const current = stats.get(key);
+        if (!current) {
+            stats.set(key, { min: item.rawValue, max: item.rawValue });
+            return;
+        }
+        current.min = Math.min(current.min, item.rawValue);
+        current.max = Math.max(current.max, item.rawValue);
+    });
+    return stats;
+}
+
+function setAttentionHeatmapCellValues(cellData, colNormalize, columnStatsByImage) {
+    const useColNormalize = Boolean(colNormalize);
+    (cellData || []).forEach(item => {
+        if (!useColNormalize) {
+            item.value = item.baseValue;
+            return;
+        }
+        const stats = columnStatsByImage.get(String(item.imageName));
+        const min = stats ? stats.min : item.rawValue;
+        const max = stats ? stats.max : item.rawValue;
+        const range = (max - min) || 1;
+        item.value = (item.rawValue - min) / range;
+    });
+}
+
+function applyAttentionHeatmapNormalization(colNormalize = false) {
+    if (!attentionHeatmapRenderState || !attentionHeatmapRenderState.cellsSelection) {
+        return false;
+    }
+
+    setAttentionHeatmapCellValues(
+        attentionHeatmapRenderState.cellData,
+        colNormalize,
+        attentionHeatmapRenderState.columnStatsByImage
+    );
+
+    attentionHeatmapRenderState.cellsSelection
+        .attr('fill', d => attentionHeatmapRenderState.colorScale(d.value));
+
+    if (attentionHeatmapRenderState.legendMinLabel && attentionHeatmapRenderState.legendMaxLabel) {
+        attentionHeatmapRenderState.legendMinLabel
+            .text(colNormalize ? '0' : attentionHeatmapRenderState.rawMin.toFixed(2));
+        attentionHeatmapRenderState.legendMaxLabel
+            .text(colNormalize ? '1' : attentionHeatmapRenderState.rawMax.toFixed(2));
+    }
+
+    attentionHeatmapRenderState.isColumnNormalized = Boolean(colNormalize);
+    return true;
+}
+
+window.applyAttentionHeatmapNormalization = applyAttentionHeatmapNormalization;
 
 // heatmap-viz.js — heatmap visualization, highlights, legend
 
@@ -343,6 +401,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     // 1. Data Validation
     if (!data.matrix_normalized || data.matrix_normalized.length === 0 || data.images.length === 0 || data.classes.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: #999;">No data available</p>';
+        attentionHeatmapRenderState = null;
         return;
     }
 
@@ -373,7 +432,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     // Calcular suma por imagen (columna) y crear un mapeo para los scores
     const imageSums = {};
     const imageScoresMap = {};  // Mapeo de ImageIndex -> score
-    const sortedImages = data.image_scores.sort((a, b) => a[1] - b[1]);
+    const sortedImages = (data.image_scores || []).slice().sort((a, b) => a[1] - b[1]);
     // 4. Scales and Bandwidth (Key Update)
     heatmapLog('SORTED IMAGES');
     heatmapLog(sortedImages);
@@ -388,34 +447,20 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         // imageIdx es ImageIndex (0-based), convertir a ImageName (número real)
         //const imageNameValue = imageNames[imageIdx];
 
+        const baseValue = data.matrix_normalized[data.classes.indexOf(className)][data.images.indexOf(imageIdx[0])];
         return {
             className: className,
             imageIdx: imageIdx[0],  // ImageIndex (0-based, para posicionamiento y lookup en matrices)
             imageName: imageIdx[0],  // ImageName (número real de imagen, ej: 114)
-            value: data.matrix_normalized[data.classes.indexOf(className)][data.images.indexOf(imageIdx[0])],
+            baseValue: baseValue,
+            value: baseValue,
             rawValue: data.matrix_raw[data.classes.indexOf(className)][data.images.indexOf(imageIdx[0])],
             imageScore: imageIdx[1] || 0
         };
     });
 
-    if (colNormalize == true){
-        const groups = cellData.reduce((acc, item) => {
-            if (!acc[item.imageName]) acc[item.imageName] = [];
-            acc[item.imageName].push(item);
-            return acc;
-        }, {});
-        for (const imageName in groups) {
-            const group = groups[imageName];
-            const values = group.map(d => d.rawValue);
-            const min = Math.min(...values);
-            const max = Math.max(...values);
-            const range = max - min || 1; // avoid divide-by-zero
-            for (const d of group) {
-                d.value = (d.rawValue - min) / range;
-            }
-        }
-
-    }
+    const columnStatsByImage = buildAttentionColumnStats(cellData);
+    setAttentionHeatmapCellValues(cellData, colNormalize, columnStatsByImage);
 
     const imageOrder = sortedImages.map(d => d[0]);
 
@@ -669,7 +714,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr("fill", "url(#participant-attention-gradient)");
 
     // Min & max labels
-    svgLegend.append("text")
+    const legendMinLabel = svgLegend.append("text")
         .attr("x", barX + barWidth / 2)
         .attr("y", barY + barHeight + 4)
         .attr("text-anchor", "middle")
@@ -679,7 +724,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .text(colNormalize == true? '0': minVal.toFixed(2));
 
     // Max label (top of bar)
-    svgLegend.append("text")
+    const legendMaxLabel = svgLegend.append("text")
         .attr("x", barX + barWidth / 2)
         .attr("y", barY - 4)
         .attr("text-anchor", "middle")
@@ -697,6 +742,19 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr('fill', 'var(--color-secondary)')
         .attr("transform", "rotate(90," + (barX + barWidth + 8) + "," + (barY + barHeight / 2) + ")")
         .text("Attention");
+
+    attentionHeatmapRenderState = {
+        dataRef: data,
+        cellData,
+        cellsSelection: cells.selectAll('.rect-heatmap'),
+        colorScale,
+        columnStatsByImage,
+        rawMin: minVal,
+        rawMax: maxVal,
+        legendMinLabel,
+        legendMaxLabel,
+        isColumnNormalized: Boolean(colNormalize)
+    };
 
     if (typeof window.updateLinkedSelectionViews === 'function') {
         window.updateLinkedSelectionViews();
