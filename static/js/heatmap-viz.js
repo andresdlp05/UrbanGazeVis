@@ -1,5 +1,92 @@
 const heatmapLog = window.debugLog || function(...args) { if (window.DEBUG_LOGS) { console.log(...args); } };
 let attentionHeatmapRenderState = null;
+const HEATMAP_BLUE_MAX_INTENSITY = 0.80;
+const HEATMAP_LABEL_FONT_FAMILY = '"Avenir Next Custom", "Inter", sans-serif';
+
+function measureHeatmapTextWidth(text, fontSize = 12, fontWeight = 400) {
+    const content = String(text ?? '');
+    if (typeof document === 'undefined') {
+        return content.length * (fontSize * 0.6);
+    }
+
+    if (!measureHeatmapTextWidth._canvas) {
+        measureHeatmapTextWidth._canvas = document.createElement('canvas');
+    }
+    const ctx = measureHeatmapTextWidth._canvas.getContext('2d');
+    if (!ctx) {
+        return content.length * (fontSize * 0.6);
+    }
+
+    ctx.font = `${fontWeight} ${fontSize}px ${HEATMAP_LABEL_FONT_FAMILY}`;
+    return ctx.measureText(content).width;
+}
+
+function truncateHeatmapLabel(text, maxWidthPx, fontSize = 12, fontWeight = 400) {
+    const content = String(text ?? '');
+    if (!Number.isFinite(maxWidthPx) || maxWidthPx <= 0) {
+        return content;
+    }
+    if (measureHeatmapTextWidth(content, fontSize, fontWeight) <= maxWidthPx) {
+        return content;
+    }
+
+    const ellipsis = '...';
+    let low = 0;
+    let high = content.length;
+    let best = '';
+
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const candidate = `${content.slice(0, mid).trimEnd()}${ellipsis}`;
+        const width = measureHeatmapTextWidth(candidate, fontSize, fontWeight);
+        if (width <= maxWidthPx) {
+            best = candidate;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    return best || ellipsis;
+}
+
+function compactUnderscoreLabel(text) {
+    const content = String(text ?? '');
+    if (!content.includes('_')) {
+        return content;
+    }
+
+    const parts = content
+        .split('_')
+        .map(part => part.trim())
+        .filter(Boolean);
+
+    if (parts.length >= 3) {
+        return `${parts[0]}_${parts[parts.length - 1]}`;
+    }
+
+    return content;
+}
+
+function computeHeatmapLeftMargin(labels, containerWidth) {
+    const baseMin = 100;
+    const dynamicMax = Math.max(140, Math.floor(containerWidth * 0.32));
+    const labelReserve = 14; // espacio entre etiqueta y celdas
+    const axisTitleReserve = 22; // espacio para "Classes"
+    const maxLabelWidth = (labels || []).reduce((max, label) => {
+        const compactLabel = compactUnderscoreLabel(label);
+        const width = measureHeatmapTextWidth(compactLabel, 12, 400);
+        return Math.max(max, width);
+    }, 0);
+    const desired = Math.ceil(maxLabelWidth + labelReserve + axisTitleReserve);
+    return Math.max(baseMin, Math.min(dynamicMax, desired));
+}
+
+function interpolateSoftBlues(t) {
+    const normalized = Number.isFinite(t) ? t : 0;
+    const clamped = Math.max(0, Math.min(1, normalized));
+    return d3.interpolateBlues(clamped * HEATMAP_BLUE_MAX_INTENSITY);
+}
 
 function buildAttentionColumnStats(cellData) {
     const stats = new Map();
@@ -81,9 +168,14 @@ function visualizeHeatmap(data) {
     }
 
     // 1. Setup dimensions
-    const margin = { top: 20, right: 20, bottom: 50, left: 100 };
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
+    const margin = {
+        top: 20,
+        right: 20,
+        bottom: 50,
+        left: computeHeatmapLeftMargin(data.classes, containerWidth)
+    };
     const width = containerWidth - margin.left - margin.right;
     const height = containerHeight - margin.top - margin.bottom;
 
@@ -148,7 +240,7 @@ function visualizeHeatmap(data) {
 
     const colorScale = d3.scaleSequential()
         .domain([minRawValue, maxRawValue])  // Rango de valores crudos
-        .interpolator(d3.interpolateBlues);
+        .interpolator(interpolateSoftBlues);
 
     // 3. Flatten data (using sorted class order)
     const heatmapData = [];
@@ -217,6 +309,8 @@ function visualizeHeatmap(data) {
         .text(d => d.participant);
 
     // 7. Y Axis (Added class 'y-axis-label')
+    const yAxisLabelMaxWidth = Math.max(40, margin.left - 20);
+
     svg.append('g')
         .selectAll('text')
         .data(sortedClasses)
@@ -228,8 +322,14 @@ function visualizeHeatmap(data) {
         .attr('text-anchor', 'end')
         .attr('dominant-baseline', 'middle')
         .attr('font-size', '12px')
+        .style('font-family', HEATMAP_LABEL_FONT_FAMILY)
         .style('cursor', 'pointer') // Indicate clickable
         .style('fill','var(--color-secondary)')
+        .text(d => {
+            const compactLabel = compactUnderscoreLabel(d);
+            return truncateHeatmapLabel(compactLabel, yAxisLabelMaxWidth, 12, 400);
+        })
+        .append('title')
         .text(d => d);
 
     // 8. Axis Labels
@@ -244,7 +344,7 @@ function visualizeHeatmap(data) {
     svg.append('text')
         .attr('transform', 'rotate(-90)')
         .attr('x', -height / 2)
-        .attr('y', -80)
+        .attr('y', -(margin.left - 20))
         .attr('text-anchor', 'middle')
         .attr('font-size', '16px')
         .style('fill','var(--color-secondary)')
@@ -325,7 +425,7 @@ function visualizeHeatmap(data) {
 
     // Legend rect size & position
     const barWidth = width2 / 3;
-    const barHeight = height2*0.5;
+    const barHeight = height2*0.8;
     const barX = (width2 - barWidth) / 2;
     const barY = (height2 - barHeight) / 2;
     // Gradient
@@ -410,9 +510,14 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     heatmapLog('ATTENTION HEATMAP DATA');
     heatmapLog(data);
     // 2. Setup Dimensions
-    const margin = { top: 15, right: 20, bottom: 50, left: 120 }; // Increased margins for axis labels
     let containerWidth = container.clientWidth;
     let containerHeight = container.clientHeight;
+    const margin = {
+        top: 15,
+        right: 20,
+        bottom: 50,
+        left: computeHeatmapLeftMargin(data.classes, containerWidth)
+    };
 
     const width = containerWidth - margin.left - margin.right;
     const height = containerHeight - margin.top - margin.bottom;
@@ -501,7 +606,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 
     const colorScale = d3.scaleLinear()
         .domain([0, 1])         // your data range
-        .interpolate(() => d3.interpolateBlues);
+        .interpolate(() => interpolateSoftBlues);
 
     // The size of each cell is determined by the bandwidth of the scales
     const cellWidth = xScale.bandwidth();
@@ -620,6 +725,8 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .text(d => d[0]);
 
     // 7. Y Axis (Added class 'y-axis-label')
+    const yAxisLabelMaxWidth = Math.max(40, margin.left - 20);
+
     svg.append('g')
         .selectAll('text')
         .data(data.classes)
@@ -631,7 +738,13 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr('text-anchor', 'end')
         .attr('dominant-baseline', 'middle')
         .attr('font-size', '12px')
+        .style('font-family', HEATMAP_LABEL_FONT_FAMILY)
         .style('cursor', 'pointer') // Indicate clickable
+        .text(d => {
+            const compactLabel = compactUnderscoreLabel(d);
+            return truncateHeatmapLabel(compactLabel, yAxisLabelMaxWidth, 12, 400);
+        })
+        .append('title')
         .text(d => d);
 
     // X-Axis Label
@@ -659,7 +772,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     svg.append('text')
         .attr('transform', 'rotate(-90)')
         .attr('x', -height / 2)
-        .attr('y', -80)
+        .attr('y', -(margin.left - 20))
         .attr('text-anchor', 'middle')
         .attr('font-size', '16px')
         .style('fill','var(--color-secondary)')
@@ -682,7 +795,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 
     // Legend rect size & position
     const barWidth = width2 / 3;
-    const barHeight = height2*0.5;
+    const barHeight = height2*0.7;
     const barX = (width2 - barWidth) / 2;
     const barY = (height2 - barHeight) / 2;
     // Gradient

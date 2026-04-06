@@ -175,6 +175,12 @@ function visualizeScarfPlot(data) {
             const classes = [];
             const legendContainer = document.getElementById('scarf-plot-legend');
             legendContainer.innerHTML = "";
+            legendContainer.style.gap = '6px';
+            legendContainer.style.justifyContent = 'center';
+            legendContainer.style.alignItems = 'center';
+            legendContainer.style.padding = '0 4px';
+            legendContainer.style.overflowX = 'auto';
+            legendContainer.style.fontFamily = '"Avenir Next Custom", "Inter", sans-serif';
 
             data.scarf_data.forEach(participant => {
                 participant.segments.forEach(segment => {
@@ -190,14 +196,14 @@ function visualizeScarfPlot(data) {
 
             var btnLegend = document.createElement('div');
             btnLegend.innerHTML = 'Classes:';
-            btnLegend.className = 'btn btn-ghost btn-sm text-right pointer-events-none h-full w-1/'+(classes.length+1);;
+            btnLegend.className = 'btn btn-ghost btn-xs pointer-events-none h-6 min-h-0 px-1 normal-case shrink-0 flex items-center font-semibold';
             legendContainer.append(btnLegend);
 
             for (let i = 0; i<classes.length; i++){
                 var btnLegend = document.createElement('div');
                 btnLegend.id = 'legend-'+ classes[i].name;
-                btnLegend.className = 'btn btn-ghost btn-sm flex flex-row h-full w-1/'+(classes.length+1);
-                var innerhtml = "<div class='w-1/4 h-full' style='background-color:"+ classes[i].color+"'></div>" + classes[i].name;
+                btnLegend.className = 'btn btn-ghost btn-xs flex flex-row items-center h-6 min-h-0 px-1 gap-1 normal-case shrink-0';
+                var innerhtml = "<div class='rounded-sm shrink-0' style='width:14px;height:14px;background-color:"+ classes[i].color+"'></div><span class='text-xs leading-none'>"+ classes[i].name+"</span>";
                 btnLegend.innerHTML = innerhtml;
 
                 // MODIFICACIÃ“N: Agregar evento click para cross-filtering
@@ -337,7 +343,11 @@ function clearScarfSegmentSelection() {
         updateHighlightsGlobal();
     }
 
-    restorePointsForCurrentParticipantSelection();
+    // Al deseleccionar el mismo segmento (segundo click), no restaurar puntos
+    // por participante: el requisito es dejar el overlay sin puntos.
+    currentGazePoints = [];
+    currentFixationPoints = [];
+    clearOverlayPoints();
     setClearButtonEnabled(Boolean(currentAnalyzedArea));
 }
 
