@@ -293,6 +293,65 @@ function visualizeHeatmap(data) {
         .style('pointer-events', 'none')
         .text(d => (d.rawValue || 0).toFixed(2));
 
+    function toggleHeatmapClassSelection(className) {
+        if (window.selectedClass === className) {
+            window.selectedClass = null;
+        } else {
+            window.selectedClass = className;
+        }
+        updateHighlights();
+        heatmapLog('Selected Class:', window.selectedClass);
+    }
+
+    function updateParticipantAxisLabelStyles() {
+        const selectedParticipantKey = (
+            selectedPart !== null &&
+            selectedPart !== undefined &&
+            selectedPart !== '' &&
+            selectedPart !== 'all'
+        ) ? String(selectedPart) : null;
+
+        svg.selectAll('.heatmap-participant-axis-label')
+            .style('font-weight', d => {
+                const participantValue = String(d?.participant ?? d);
+                return selectedParticipantKey && participantValue === selectedParticipantKey ? '700' : '400';
+            })
+            .style('opacity', d => {
+                if (!selectedParticipantKey) return 1;
+                const participantValue = String(d?.participant ?? d);
+                return participantValue === selectedParticipantKey ? 1 : 0.65;
+            });
+    }
+
+    function handleHeatmapParticipantLabelClick(participantValue) {
+        const participantKey = String(participantValue);
+        const isSameSelection = String(selectedPart ?? 'all') === participantKey;
+        selectedPart = isSameSelection ? 'all' : participantKey;
+
+        const partSelect = document.getElementById('part-select');
+        if (partSelect) {
+            partSelect.value = selectedPart;
+        }
+
+        if (selectedPart !== 'all') {
+            highlightParticipantColumnInHeatmap(selectedPart);
+            if (typeof highlightParticipantInScarf === 'function') {
+                highlightParticipantInScarf(selectedPart);
+            }
+        } else {
+            removeParticipantColumnHighlight();
+            if (typeof highlightParticipantInScarf === 'function') {
+                highlightParticipantInScarf(null);
+            }
+        }
+
+        if (currentOverlayTypes && currentOverlayTypes.length > 0 && !window._scarfSelecting) {
+            updateOverlay();
+        }
+
+        updateParticipantAxisLabelStyles();
+    }
+
     // 6. X Axis
     svg.append('g')
         .attr('transform', `translate(0,${height})`)
@@ -306,7 +365,12 @@ function visualizeHeatmap(data) {
         .attr('text-anchor', 'middle')
         .attr('font-size', '12px')
         .style('fill','var(--color-secondary)')
-        .text(d => d.participant);
+        .style('cursor', 'pointer')
+        .text(d => d.participant)
+        .on('click', function(_event, d) {
+            const participantValue = d?.participant ?? d;
+            handleHeatmapParticipantLabelClick(participantValue);
+        });
 
     // 7. Y Axis (Added class 'y-axis-label')
     const yAxisLabelMaxWidth = Math.max(40, margin.left - 20);
@@ -328,6 +392,9 @@ function visualizeHeatmap(data) {
         .text(d => {
             const compactLabel = compactUnderscoreLabel(d);
             return truncateHeatmapLabel(compactLabel, yAxisLabelMaxWidth, 12, 400);
+        })
+        .on('click', function(_event, d) {
+            toggleHeatmapClassSelection(d);
         })
         .append('title')
         .text(d => d);
@@ -355,13 +422,12 @@ function visualizeHeatmap(data) {
     // ---------------------------------------------------------
 
     // Function to update visual state based on global variable
-    // MODIFICACIÓN: Ahora simplemente delega a la función global
     function updateHighlights() {
         updateHighlightsGlobal();
     }
 
     svg.selectAll('.row-selector')
-        .data(data.classes)
+        .data(sortedClasses)
         .enter()
         .append('rect')
         .attr('class', 'row-selector')
@@ -395,19 +461,12 @@ function visualizeHeatmap(data) {
             }
         })
         .on('click', function(event, d) {
-            if (window.selectedClass === d) {
-                // Deselect if clicking the same one
-                window.selectedClass = null;
-            } else {
-                // Select new one
-                window.selectedClass = d;
-            }
-            updateHighlights();
-            heatmapLog("Selected Class:", window.selectedClass);
+            toggleHeatmapClassSelection(d);
         });
 
     // Initialize state in case of re-render
     updateHighlights();
+    updateParticipantAxisLabelStyles();
 
     document.getElementById("heatmap-plot-legend").innerHTML = "";
     // Assume heatmapData is available and contains objects with rawValue
@@ -718,21 +777,49 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .data(sortedImages)
         .enter()
         .append('text')
+        .attr('class', 'attention-heatmap-image-axis-label')
         .attr('x', d => xScale(d[0]) + xScale.bandwidth() / 2)
         .attr('y', 12)
         .attr('text-anchor', 'middle')
         .attr('font-size', '12px')
-        .text(d => d[0]);
+        .style('cursor', 'pointer')
+        .text(d => d[0])
+        .on('click', function(_event, d) {
+            handleAttentionSummaryColumnClick(d[0]);
+        });
 
     // 7. Y Axis (Added class 'y-axis-label')
     const yAxisLabelMaxWidth = Math.max(40, margin.left - 20);
+    const updateAttentionClassSelectionStyles = () => {
+        const selectedClassKey = window.selectedAttentionClass ? String(window.selectedAttentionClass) : null;
 
-    svg.append('g')
+        cells.selectAll('.rect-heatmap')
+            .attr('stroke', cell => {
+                if (!selectedClassKey) return '#fff';
+                return String(cell?.className) === selectedClassKey ? '#1d5f9f' : '#fff';
+            })
+            .attr('stroke-width', cell => {
+                if (!selectedClassKey) return 0.5;
+                return String(cell?.className) === selectedClassKey ? 1.3 : 0.5;
+            });
+
+        attentionYAxisLabels
+            .style('font-weight', label => {
+                if (!selectedClassKey) return '400';
+                return String(label) === selectedClassKey ? '700' : '400';
+            })
+            .style('opacity', label => {
+                if (!selectedClassKey) return 1;
+                return String(label) === selectedClassKey ? 1 : 0.65;
+            });
+    };
+
+    const attentionYAxisLabels = svg.append('g')
         .selectAll('text')
         .data(data.classes)
         .enter()
         .append('text')
-        .attr('class', 'y-axis-label') // Class needed for selection later
+        .attr('class', 'attention-y-axis-label')
         .attr('x', -10)
         .attr('y', d => yScale(d) + yScale.bandwidth() / 2)
         .attr('text-anchor', 'end')
@@ -740,12 +827,22 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         .attr('font-size', '12px')
         .style('font-family', HEATMAP_LABEL_FONT_FAMILY)
         .style('cursor', 'pointer') // Indicate clickable
+        .style('fill', 'var(--color-secondary)')
         .text(d => {
             const compactLabel = compactUnderscoreLabel(d);
             return truncateHeatmapLabel(compactLabel, yAxisLabelMaxWidth, 12, 400);
         })
+        .on('click', function(_event, d) {
+            if (window.selectedAttentionClass === d) {
+                window.selectedAttentionClass = null;
+            } else {
+                window.selectedAttentionClass = d;
+            }
+            updateAttentionClassSelectionStyles();
+        })
         .append('title')
         .text(d => d);
+    updateAttentionClassSelectionStyles();
 
     // X-Axis Label
     svg.append('text')
@@ -1106,12 +1203,25 @@ function highlightParticipantColumnInHeatmap(participantId) {
         .style('pointer-events', 'none')
         .style('opacity', 0.8);
 
+    d3.selectAll('.heatmap-participant-axis-label')
+        .style('font-weight', d => {
+            const value = String(d?.participant ?? d);
+            return value === participantKey ? '700' : '400';
+        })
+        .style('opacity', d => {
+            const value = String(d?.participant ?? d);
+            return value === participantKey ? 1 : 0.65;
+        });
+
     heatmapLog('Participant column highlighted at x:', rectX, 'width:', rectWidth, 'height:', totalHeight);
 }
 
 // Remover highlight de columna de participante
 function removeParticipantColumnHighlight() {
     d3.select('#heatmap-participant-highlight').remove();
+    d3.selectAll('.heatmap-participant-axis-label')
+        .style('font-weight', '400')
+        .style('opacity', 1);
 }
 
 function clearHeatmapAreaFrames() {
