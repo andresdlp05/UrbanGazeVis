@@ -84,7 +84,7 @@ class HeatmapController:
 
         Args:
             image_id: ImageName de la imagen (usado para filtrar datos del CSV)
-            top_n_clases: NÃºmero de clases principales a mostrar
+            top_n_clases: Numero de clases principales a mostrar
             data_type: Tipo de datos a usar ('gaze' o 'fixations')
             dataset_select: Columna a usar para clasificaciÃ³n ('main_class' o 'grupo')
             image_name: ImageName de la imagen (usado para buscar en scores/JSON) - DEPRECATED, use image_id
