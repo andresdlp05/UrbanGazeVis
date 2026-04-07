@@ -3,6 +3,11 @@ let attentionHeatmapRenderState = null;
 const HEATMAP_BLUE_MAX_INTENSITY = 0.80;
 const HEATMAP_LABEL_FONT_FAMILY = '"Avenir Next Custom", "Inter", sans-serif';
 
+function isUnknownClassLabel(value) {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized === 'unknown';
+}
+
 function measureHeatmapTextWidth(text, fontSize = 12, fontWeight = 400) {
     const content = String(text ?? '');
     if (typeof document === 'undefined') {
@@ -162,6 +167,15 @@ function visualizeHeatmap(data) {
         return;
     }
 
+    const visibleClasses = (data.classes || []).filter(className => !isUnknownClassLabel(className));
+    if (visibleClasses.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #999;">No data available</p>';
+        return;
+    }
+    if (window.selectedClass && isUnknownClassLabel(window.selectedClass)) {
+        window.selectedClass = null;
+    }
+
     if (data.class_colors) {
         classColorMap = { ...data.class_colors };
         heatmapLog('Updated classColorMap:', classColorMap);
@@ -174,7 +188,7 @@ function visualizeHeatmap(data) {
         top: 20,
         right: 20,
         bottom: 50,
-        left: computeHeatmapLeftMargin(data.classes, containerWidth)
+        left: computeHeatmapLeftMargin(visibleClasses, containerWidth)
     };
     const width = containerWidth - margin.left - margin.right;
     const height = containerHeight - margin.top - margin.bottom;
@@ -191,8 +205,10 @@ function visualizeHeatmap(data) {
     // ORDENAMIENTO: Reordenar clases por score (primario) y suma de columna (secundario)
     // Calcular suma por clase (fila)
     const classSums = {};
-    data.classes.forEach((className, i) => {
-        const sum = data.matrix_raw[i].reduce((a, b) => a + b, 0);
+    visibleClasses.forEach((className) => {
+        const classIndex = data.classes.indexOf(className);
+        const rowValues = (data.matrix_raw[classIndex] || []);
+        const sum = rowValues.reduce((a, b) => a + b, 0);
         classSums[className] = sum;
     });
 
@@ -200,7 +216,7 @@ function visualizeHeatmap(data) {
     const classScores = data.class_scores || {};
 
     // Ordenar clases: primero por score (menor a mayor), luego por suma (mayor a menor si scores iguales)
-    const sortedClasses = [...data.classes].sort((a, b) => {
+    const sortedClasses = [...visibleClasses].sort((a, b) => {
         const scoreA = classScores[a] !== undefined ? classScores[a] : Infinity;
         const scoreB = classScores[b] !== undefined ? classScores[b] : Infinity;
 
@@ -259,7 +275,7 @@ function visualizeHeatmap(data) {
     });
 
     heatmapLog('heatmapData length:', heatmapData.length);
-    heatmapLog('Expected data points:', data.classes.length * data.participants.length);
+    heatmapLog('Expected data points:', visibleClasses.length * data.participants.length);
     heatmapLog('Classes in heatmapData:', [...new Set(heatmapData.map(d => d.row))].length);
 
     // 4. Draw Cells - usar rawValue (sin normalizar)
@@ -564,6 +580,16 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         return;
     }
 
+    const visibleClasses = (data.classes || []).filter(className => !isUnknownClassLabel(className));
+    if (visibleClasses.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #999;">No data available</p>';
+        attentionHeatmapRenderState = null;
+        return;
+    }
+    if (window.selectedAttentionClass && isUnknownClassLabel(window.selectedAttentionClass)) {
+        window.selectedAttentionClass = null;
+    }
+
     // Guardar datos globalmente para acceso posterior
     window.currentAttentionHeatmapData = data;
     heatmapLog('ATTENTION HEATMAP DATA');
@@ -575,7 +601,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
         top: 15,
         right: 20,
         bottom: 50,
-        left: computeHeatmapLeftMargin(data.classes, containerWidth)
+        left: computeHeatmapLeftMargin(visibleClasses, containerWidth)
     };
 
     const width = containerWidth - margin.left - margin.right;
@@ -607,7 +633,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 
     // 5. Draw Heatmap Cells (D3 Idiomatic Way)
     // Create a joint array of all (class, image) pairs using sorted images
-    const cellData = d3.cross(data.classes, sortedImages, (className, imageIdx, i, j) => {
+    const cellData = d3.cross(visibleClasses, sortedImages, (className, imageIdx, i, j) => {
         // imageIdx es ImageIndex (0-based), convertir a ImageName (número real)
         //const imageNameValue = imageNames[imageIdx];
 
@@ -629,8 +655,8 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
     const imageOrder = sortedImages.map(d => d[0]);
 
     const data_matrix = [];
-    for (let i = 0; i < data.classes.length; i++) {
-        const className = data.classes[i];
+    for (let i = 0; i < visibleClasses.length; i++) {
+        const className = visibleClasses[i];
         // Siempre usar rawValue para el orden — independiente del Normalize toggle
         var mapForClass = new Map();
         cellData
@@ -644,8 +670,8 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 
     var perm = reorder.optimal_leaf_order()(data_matrix);
     var permIds = [];
-    for (let i = 0; i < data.classes.length; i++) {
-        permIds.push(data.classes[perm[i]]);
+    for (let i = 0; i < visibleClasses.length; i++) {
+        permIds.push(visibleClasses[perm[i]]);
     }
     var newClasses = permIds.slice();
 
@@ -816,7 +842,7 @@ function visualizeAttentionHeatmap(data, colNormalize=false) {
 
     const attentionYAxisLabels = svg.append('g')
         .selectAll('text')
-        .data(data.classes)
+        .data(visibleClasses)
         .enter()
         .append('text')
         .attr('class', 'attention-y-axis-label')

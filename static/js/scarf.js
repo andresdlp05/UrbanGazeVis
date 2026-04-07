@@ -8,6 +8,11 @@ const scarfLog = window.debugLog || function(...args) {
 
 let previousSelectedPartBeforeScarfSegment = null;
 
+function isUnknownScarfClass(value) {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized === 'unknown';
+}
+
 function getParticipantIndexedPoints(points, indexMap, participantId) {
     if (!participantId || participantId === 'all') {
         return points || [];
@@ -26,9 +31,22 @@ function visualizeScarfPlot(data) {
         return;
     }
 
+    const filteredScarfData = (data.scarf_data || []).map(item => ({
+        ...item,
+        segments: (item.segments || []).filter(segment => !isUnknownScarfClass(segment?.class))
+    }));
+    const totalVisibleSegments = filteredScarfData.reduce((sum, item) => sum + item.segments.length, 0);
+    if (totalVisibleSegments === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #999;">No hay datos disponibles</p>';
+        return;
+    }
+    if (window.selectedClass && isUnknownScarfClass(window.selectedClass)) {
+        window.selectedClass = null;
+    }
+
     // LOG: Ver quÃ© colores estÃ¡n llegando del backend
     scarfLog('%c=== SCARF PLOT COLORS DEBUG ===', 'color: orange; font-weight: bold');
-    const allSegments = data.scarf_data.flatMap(d => d.segments);
+    const allSegments = filteredScarfData.flatMap(d => d.segments);
     const uniqueColorsByClass = {};
     allSegments.forEach(seg => {
         if (!uniqueColorsByClass[seg.class]) {
@@ -66,7 +84,7 @@ function visualizeScarfPlot(data) {
     const rowHeight = participantScale.bandwidth();
         // --- D3-style Data Binding ---
     const participantRows = svg.selectAll('.participant-row')
-        .data(data.scarf_data) // Bind the array of participants
+        .data(filteredScarfData) // Bind the array of participants
         .enter()
         .append('g') // Create a new group element for each participant
         .attr('class', 'participant-row')
@@ -182,7 +200,7 @@ function visualizeScarfPlot(data) {
             legendContainer.style.overflowX = 'auto';
             legendContainer.style.fontFamily = '"Avenir Next Custom", "Inter", sans-serif';
 
-            data.scarf_data.forEach(participant => {
+            filteredScarfData.forEach(participant => {
                 participant.segments.forEach(segment => {
                     const existing = classes.find(c => c.name === segment.class);
                     if (!existing) {
